@@ -306,6 +306,7 @@ export const make = (
       Option.Option<Fiber.Fiber<EffectAcpSchema.PromptResponse, EffectAcpErrors.AcpError>>
     >(Option.none());
     const sessionLoadGateRef = yield* Ref.make<Option.Option<SessionLoadGate>>(Option.none());
+    const sessionUpdateSemaphore = yield* Semaphore.make(1);
 
     const logRequest = (event: AcpSessionRequestLogEvent) =>
       options.requestLogger ? options.requestLogger(event) : Effect.void;
@@ -376,7 +377,15 @@ export const make = (
 
     const acp = yield* Effect.service(EffectAcpClient.AcpClient).pipe(Effect.provide(acpContext));
 
-    yield* acp.handleSessionUpdate((notification) =>
+    // Updates can legitimately arrive before session setup settles (e.g.
+    // Copilot advertises slash-command skills right after session/new).
+    // Buffer them and re-dispatch once the root session id is known.
+    const preStartUpdatesRef = yield* Ref.make<Array<EffectAcpSchema.SessionNotification>>([]);
+
+    const processSessionNotification = (
+      notification: EffectAcpSchema.SessionNotification,
+      rootSessionId: string,
+    ) =>
       Effect.gen(function* () {
         const gate = yield* Ref.get(sessionLoadGateRef);
         if (Option.isSome(gate) && gate.value.active) {
@@ -393,13 +402,9 @@ export const make = (
         if (sessionUpdateIsReplay(notification)) {
           return;
         }
-        const startState = yield* Ref.get(startStateRef);
         // One runtime projects one root ACP session. Child-session updates need
         // explicit lineage routing and must never be flattened into this stream.
-        if (
-          startState._tag !== "Started" ||
-          notification.sessionId !== startState.result.sessionId
-        ) {
+        if (notification.sessionId !== rootSessionId) {
           return;
         }
         yield* handleSessionUpdate({
@@ -410,7 +415,45 @@ export const make = (
           assistantItemRuntimeId,
           params: notification,
         });
-      }),
+      });
+
+    const drainPreStartUpdates = (rootSessionId: string) =>
+      Effect.gen(function* () {
+        const buffered = yield* Ref.getAndSet(preStartUpdatesRef, []);
+        yield* Effect.forEach(
+          buffered,
+          (notification) =>
+            notification.sessionId === rootSessionId
+              ? processSessionNotification(notification, rootSessionId)
+              : Effect.void,
+          { discard: true },
+        );
+      });
+
+    yield* acp.handleSessionUpdate((notification) =>
+      sessionUpdateSemaphore.withPermits(1)(
+        Effect.gen(function* () {
+          const startState = yield* Ref.get(startStateRef);
+          if (startState._tag !== "Started") {
+            yield* Ref.update(preStartUpdatesRef, (buffer) => [...buffer, notification]);
+            // The session/load idle detector counts every gated touch, replays
+            // included; buffered traffic must keep feeding it.
+            const gate = yield* Ref.get(sessionLoadGateRef);
+            if (Option.isSome(gate) && gate.value.active) {
+              const lastActivityAtMillis = yield* Clock.currentTimeMillis;
+              yield* Ref.set(
+                sessionLoadGateRef,
+                Option.some({
+                  ...gate.value,
+                  lastActivityAtMillis,
+                }),
+              );
+            }
+            return;
+          }
+          yield* processSessionNotification(notification, startState.result.sessionId);
+        }),
+      ),
     );
     const initializeClientCapabilities = {
       fs: {
@@ -550,15 +593,20 @@ export const make = (
         acp.agent.initialize(initializePayload),
       );
 
-      const authenticatePayload = {
-        methodId: options.authMethodId,
-      } satisfies EffectAcpSchema.AuthenticateRequest;
+      // Agents that handle auth entirely outside ACP (GitHub login, cached
+      // tokens) advertise no auth methods; drivers signal that with an empty
+      // authMethodId and the handshake skips the authenticate round-trip.
+      if (options.authMethodId.trim().length > 0) {
+        const authenticatePayload = {
+          methodId: options.authMethodId,
+        } satisfies EffectAcpSchema.AuthenticateRequest;
 
-      yield* runLoggedRequest(
-        "authenticate",
-        authenticatePayload,
-        acp.agent.authenticate(authenticatePayload),
-      );
+        yield* runLoggedRequest(
+          "authenticate",
+          authenticatePayload,
+          acp.agent.authenticate(authenticatePayload),
+        );
+      }
 
       let sessionId: string;
       let sessionSetupResult:
@@ -680,13 +728,22 @@ export const make = (
             return [
               startOnce.pipe(
                 Effect.tap((result) =>
-                  Ref.set(startStateRef, { _tag: "Started", result }).pipe(
-                    Effect.andThen(Deferred.succeed(deferred, result)),
+                  sessionUpdateSemaphore.withPermits(1)(
+                    drainPreStartUpdates(result.sessionId).pipe(
+                      // Keep the runtime in `Starting` while the buffered
+                      // notifications are replayed. The semaphore prevents
+                      // a live update from overtaking that replay; handlers
+                      // that arrive during the drain run after this state
+                      // transition and are processed in wire order.
+                      Effect.andThen(Ref.set(startStateRef, { _tag: "Started", result })),
+                      Effect.andThen(Deferred.succeed(deferred, result)),
+                    ),
                   ),
                 ),
                 Effect.onError((cause) =>
                   Deferred.failCause(deferred, cause).pipe(
                     Effect.andThen(Ref.set(startStateRef, { _tag: "NotStarted" })),
+                    Effect.andThen(Ref.set(preStartUpdatesRef, [])),
                   ),
                 ),
               ),
