@@ -619,6 +619,7 @@ export function makeCopilotAdapter(
             streaming: true,
             onEvent,
             onPermissionRequest,
+            enableExperimentalMode: copilotSettings.enableExperimentalMode,
             ...(modelSelection?.model ? { model: modelSelection.model } : {}),
             ...(tunables.reasoningEffort ? { reasoningEffort: tunables.reasoningEffort } : {}),
             ...(tunables.contextTier ? { contextTier: tunables.contextTier } : {}),

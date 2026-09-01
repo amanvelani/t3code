@@ -532,13 +532,25 @@ export const CopilotSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    enableExperimentalMode: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({
+        title: "Experimental features",
+        description:
+          "Allow GitHub Copilot to use experimental features and models. Availability still depends on your Copilot account.",
+        providerSettingsForm: {
+          control: "switch",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
     customModels: Schema.Array(Schema.String).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
   {
-    order: ["binaryPath"],
+    order: ["binaryPath", "enableExperimentalMode"],
   },
 );
 export type CopilotSettings = typeof CopilotSettings.Type;
@@ -902,6 +914,7 @@ const GrokSettingsPatch = Schema.Struct({
 const CopilotSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
+  enableExperimentalMode: Schema.optionalKey(Schema.Boolean),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 

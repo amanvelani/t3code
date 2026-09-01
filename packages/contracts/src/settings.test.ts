@@ -6,6 +6,7 @@ import {
   ClientSettingsSchema,
   ClientSettingsPatch,
   ClaudeSettings,
+  CopilotSettings,
   DEFAULT_SERVER_SETTINGS,
   defaultEnabledForDriver,
   resolveProviderInstanceEnabled,
@@ -19,6 +20,21 @@ const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
+const decodeCopilotSettings = Schema.decodeUnknownSync(CopilotSettings);
+
+describe("CopilotSettings experimental mode", () => {
+  it("defaults experimental features off", () => {
+    expect(decodeCopilotSettings({}).enableExperimentalMode).toBe(false);
+  });
+
+  it("accepts an experimental-mode opt-in through the server settings patch", () => {
+    expect(
+      decodeServerSettingsPatch({
+        providers: { copilot: { enableExperimentalMode: true } },
+      }),
+    ).toMatchObject({ providers: { copilot: { enableExperimentalMode: true } } });
+  });
+});
 
 describe("ClaudeSettings auto-compaction", () => {
   it("uses Claude's default threshold when no override is configured", () => {

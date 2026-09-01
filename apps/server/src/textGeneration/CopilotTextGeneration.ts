@@ -75,6 +75,7 @@ export const makeCopilotTextGeneration = Effect.fn("makeCopilotTextGeneration")(
         // let prompt injection run shell/file tools in `cwd` unattended. Deny
         // every request — the model just produces its text answer without them.
         onPermissionRequest: async () => ({ kind: "reject" as const }),
+        enableExperimentalMode: copilotSettings.enableExperimentalMode,
         ...(modelSelection.model ? { model: modelSelection.model } : {}),
         ...(tunables.reasoningEffort ? { reasoningEffort: tunables.reasoningEffort } : {}),
         ...(tunables.contextTier ? { contextTier: tunables.contextTier } : {}),

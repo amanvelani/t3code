@@ -49,6 +49,27 @@ describe("ProviderSettingsForm helpers", () => {
     ]);
   });
 
+  it("shows the GitHub Copilot experimental-features opt-in", () => {
+    const copilot = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("copilot")];
+    expect(copilot).toBeDefined();
+
+    expect(deriveProviderSettingsFields(copilot!).map((field) => field.key)).toEqual([
+      "binaryPath",
+      "enableExperimentalMode",
+    ]);
+    expect(
+      deriveProviderSettingsFields(copilot!).find(
+        (field) => field.key === "enableExperimentalMode",
+      ),
+    ).toMatchObject({
+      label: "Experimental features",
+      control: "switch",
+      description:
+        "Allow GitHub Copilot to use experimental features and models. Availability still depends on your Copilot account.",
+      defaultBooleanValue: false,
+    });
+  });
+
   it("preserves unknown config keys while omitting empty configurable fields", () => {
     const opencode = DRIVER_OPTION_BY_VALUE[ProviderDriverKind.make("opencode")];
     expect(opencode).toBeDefined();

@@ -26,9 +26,11 @@ transport, config, and event shapes are mapped.
 
 The `copilot` driver uses the first-party `@github/copilot-sdk` over stdio. A scoped SDK client is
 shared by provider instances, while each T3 session owns one SDK session and translates SDK
-assistant, reasoning, tool, permission, and lifecycle events into provider runtime events. Model
-discovery comes from the SDK, including per-model reasoning-effort and long-context capabilities;
-turn cancellation and conversation rollback use the SDK session APIs (see `CopilotAdapter.ts`).
+assistant, reasoning, tool, permission, and lifecycle events into provider runtime events. The
+provider's experimental-mode setting is passed to each interactive and text-generation session;
+model discovery comes from the SDK, including per-model reasoning-effort and long-context
+capabilities. Turn cancellation and conversation rollback use the SDK session APIs (see
+`CopilotAdapter.ts`).
 
 ## Registry and routing
 
