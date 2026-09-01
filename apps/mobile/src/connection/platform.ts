@@ -1,5 +1,4 @@
 import {
-  ClientPresentation,
   CloudSession,
   EnvironmentOwnedDataCleanup,
   PlatformConnectionSource,
@@ -14,18 +13,15 @@ import {
   Wakeups,
 } from "@t3tools/client-runtime/connection";
 import { managedRelayAccountChanges, managedRelaySessionAtom } from "@t3tools/client-runtime/relay";
-import { AuthStandardClientScopes } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
-import Constants from "expo-constants";
 import * as Network from "expo-network";
 import { AppState } from "react-native";
 
-import { authClientMetadata } from "../lib/authClientMetadata";
 import * as Runtime from "../lib/runtime";
 import * as MobileStorage from "../persistence/mobile-storage";
 import { appAtomRegistry } from "../state/atom-registry";
@@ -162,13 +158,6 @@ const capabilitiesLayer = Layer.effectContext(
             ),
             Effect.map(Option.some),
           ),
-        }),
-      ),
-      Context.add(
-        ClientPresentation,
-        ClientPresentation.of({
-          metadata: authClientMetadata(Constants.expoConfig?.version),
-          scopes: AuthStandardClientScopes,
         }),
       ),
       Context.add(

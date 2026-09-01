@@ -77,7 +77,7 @@ export function makeDesktopContentSecurityPolicy(input: DesktopProtocolRegistrat
   ];
 
   // The renderer connects directly to user-configured environments in addition to
-  // the build-configured Clerk, relay, and OTLP endpoints. Those environment
+  // the build-configured Clerk and relay endpoints. Those environment
   // origins are not known when this response policy is created, so restrict
   // connections by the network schemes the client supports instead of by host.
   const connectSources = ["'self'", "http:", "https:", "ws:", "wss:"];

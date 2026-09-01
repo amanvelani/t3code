@@ -95,31 +95,14 @@ export function gitHubProviderFailure(
   return { reason: "failed" };
 }
 
-/**
- * `gh pr view --json` reports no avatar for anyone, so the ones the GraphQL read collected are
- * applied here by login. An actor already carrying one keeps it.
- *
- * A login GitHub did not answer for falls back to the picture every GitHub install serves at
- * `/<login>.png`. The lookup is one more request per repository and can be refused — a rate
- * limit, a slow host — and a face that comes and goes between two loads of the same page reads
- * as a bug in the page rather than as a request that failed quietly.
- */
+/** `gh pr view --json` reports no avatar for anyone, so collected avatars are applied by login. */
 function withAvatar(
   actor: PullRequestActor | null,
   avatarsByLogin: ReadonlyMap<string, string>,
-  host: string,
 ): PullRequestActor | null {
   if (actor === null || actor.avatarUrl !== null) return actor;
-  const avatarUrl = avatarsByLogin.get(actor.login) ?? loginAvatarUrl(actor.login, host);
-  return avatarUrl === null ? actor : { ...actor, avatarUrl };
-}
-
-/**
- * Null for anything that is not a plain user login: an app posts as `dependabot[bot]`, which
- * names no page, and a guessed URL that 404s is worse than the initials it would replace.
- */
-export function loginAvatarUrl(login: string, host: string): string | null {
-  return /^[a-z0-9][a-z0-9-]{0,38}$/iu.test(login) ? `https://${host}/${login}.png?size=80` : null;
+  const avatarUrl = avatarsByLogin.get(actor.login);
+  return avatarUrl === undefined ? actor : { ...actor, avatarUrl };
 }
 
 /** True where markdown would render nothing: whitespace, or only HTML comments. */
@@ -177,7 +160,7 @@ export const make = Effect.gen(function* () {
                   ...page,
                   items: page.items.map((item) => ({
                     ...item,
-                    author: withAvatar(item.author, avatarsByLogin, input.host),
+                    author: withAvatar(item.author, avatarsByLogin),
                   })),
                 })),
               ),
@@ -186,8 +169,7 @@ export const make = Effect.gen(function* () {
 
     /**
      * The same listing for a whole host in one search. The avatar lookup the per-repository read
-     * needs is not here: a search reports an author's picture itself, so a face costs no request
-     * of its own — `withAvatar` still stands behind it for the login GitHub answered nothing for.
+     * needs is not here: a search reports an author's picture itself.
      */
     listChangeRequestsAcross: (input) =>
       cli
@@ -209,7 +191,7 @@ export const make = Effect.gen(function* () {
             truncated: batch.truncated,
             items: batch.items.map((item) => ({
               ...item,
-              author: withAvatar(item.author, new Map<string, string>(), input.host),
+              author: withAvatar(item.author, new Map<string, string>()),
             })),
           })),
         ),
@@ -313,7 +295,7 @@ export const make = Effect.gen(function* () {
         Effect.mapError(fail("getChangeRequestActivity")),
         Effect.map(
           ([pullRequest, reviewThreads]): ProviderChangeRequestActivity => ({
-            author: withAvatar(pullRequest.author, reviewThreads.avatarsByLogin, input.host),
+            author: withAvatar(pullRequest.author, reviewThreads.avatarsByLogin),
             reviewers: reviewThreads.reviewers,
             reactions: reviewThreads.reactions,
             commits: (reviewThreads.commits.length > 0
@@ -323,7 +305,7 @@ export const make = Effect.gen(function* () {
               ...commit,
               ...reviewThreads.commitStats.get(commit.oid),
               authors: commit.authors?.map(
-                (author) => withAvatar(author, reviewThreads.avatarsByLogin, input.host) ?? author,
+                (author) => withAvatar(author, reviewThreads.avatarsByLogin) ?? author,
               ),
             })),
             comments: [...pullRequest.comments, ...reviewThreads.comments]
@@ -339,7 +321,7 @@ export const make = Effect.gen(function* () {
                   rendersEmpty(comment.body)
                     ? (reviewThreads.dismissalsByReviewId.get(comment.id) ?? comment.body)
                     : comment.body,
-                author: withAvatar(comment.author, reviewThreads.avatarsByLogin, input.host),
+                author: withAvatar(comment.author, reviewThreads.avatarsByLogin),
                 // A comment out of `gh pr view --json` carries none of its own: that read
                 // reports no reaction at all, so they arrive from the GraphQL page by node id.
                 reactions: comment.reactions ?? reviewThreads.reactionsById.get(comment.id) ?? [],
@@ -353,7 +335,7 @@ export const make = Effect.gen(function* () {
               ...thread,
               comments: thread.comments.map((comment) => ({
                 ...comment,
-                author: withAvatar(comment.author, reviewThreads.avatarsByLogin, input.host),
+                author: withAvatar(comment.author, reviewThreads.avatarsByLogin),
               })),
             })),
           }),

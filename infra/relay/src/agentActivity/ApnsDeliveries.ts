@@ -40,7 +40,6 @@ import * as DeliveryAttempts from "./DeliveryAttempts.ts";
 import * as LiveActivities from "./LiveActivities.ts";
 import * as RelayConfiguration from "../Config.ts";
 import * as ApnsDeliveryQueue from "./ApnsDeliveryQueue.ts";
-import { withSpanAttributes } from "../observability.ts";
 
 const MIN_LIVE_ACTIVITY_UPDATE_INTERVAL_MS = 15_000;
 // How long a just-armed card may sit with an empty aggregate before an end is
@@ -1179,7 +1178,7 @@ export const make = Effect.gen(function* () {
             notification: payload.notification,
           });
       }
-    }).pipe(withSpanAttributes({ "user.id": payload.target.userId }));
+    });
   });
 
   return ApnsDeliveries.of({

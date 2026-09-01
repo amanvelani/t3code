@@ -1,12 +1,7 @@
 import * as Schema from "effect/Schema";
 import * as HttpApiSchema from "effect/unstable/httpapi/HttpApiSchema";
 
-import {
-  AuthSessionId,
-  ClientSurface,
-  ClientWebDeployment,
-  TrimmedNonEmptyString,
-} from "./baseSchemas.ts";
+import { AuthSessionId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 /**
  * Declares the server's overall authentication posture.
@@ -170,28 +165,12 @@ export const AuthClientMetadataDeviceType = Schema.Literals([
 ]);
 export type AuthClientMetadataDeviceType = typeof AuthClientMetadataDeviceType.Type;
 
-export const AuthClientPresentationMetadata = Schema.Struct({
-  label: Schema.optionalKey(TrimmedNonEmptyString),
-  deviceType: Schema.optionalKey(AuthClientMetadataDeviceType),
-  os: Schema.optionalKey(TrimmedNonEmptyString),
-  osMajorVersion: Schema.optionalKey(Schema.Int),
-  deviceModel: Schema.optionalKey(TrimmedNonEmptyString),
-  surface: Schema.optionalKey(ClientSurface),
-  webDeployment: Schema.optionalKey(ClientWebDeployment),
-  browser: Schema.optionalKey(TrimmedNonEmptyString),
-  appVersion: Schema.optionalKey(TrimmedNonEmptyString),
-});
-export type AuthClientPresentationMetadata = typeof AuthClientPresentationMetadata.Type;
-
 export const AuthTokenExchangeRequest = Schema.Struct({
   grant_type: Schema.Literal(AuthTokenExchangeGrantType),
   subject_token: TrimmedNonEmptyString,
   subject_token_type: Schema.Literal(AuthEnvironmentBootstrapTokenType),
   requested_token_type: Schema.Literal(AuthAccessTokenType),
   scope: Schema.optionalKey(TrimmedNonEmptyString),
-  client_label: Schema.optionalKey(TrimmedNonEmptyString),
-  client_device_type: Schema.optionalKey(AuthClientMetadataDeviceType),
-  client_os: Schema.optionalKey(TrimmedNonEmptyString),
 }).pipe(HttpApiSchema.asFormUrlEncoded());
 export type AuthTokenExchangeRequest = typeof AuthTokenExchangeRequest.Type;
 
@@ -231,11 +210,7 @@ export type AuthPairingLink = typeof AuthPairingLink.Type;
 
 export const AuthClientMetadata = Schema.Struct({
   label: Schema.optionalKey(TrimmedNonEmptyString),
-  ipAddress: Schema.optionalKey(TrimmedNonEmptyString),
-  userAgent: Schema.optionalKey(TrimmedNonEmptyString),
   deviceType: AuthClientMetadataDeviceType,
-  os: Schema.optionalKey(TrimmedNonEmptyString),
-  browser: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type AuthClientMetadata = typeof AuthClientMetadata.Type;
 

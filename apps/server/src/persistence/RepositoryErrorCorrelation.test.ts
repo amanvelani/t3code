@@ -40,11 +40,7 @@ describe("persistence error correlation", () => {
         method: "browser-session-cookie",
         client: {
           label: null,
-          ipAddress: null,
-          userAgent: null,
           deviceType: "desktop",
-          os: null,
-          browser: null,
         },
         issuedAt,
         expiresAt,
@@ -75,11 +71,7 @@ describe("persistence error correlation", () => {
           method: "browser-session-cookie",
           client: {
             label: null,
-            ipAddress: null,
-            userAgent: null,
             deviceType: "desktop",
-            os: null,
-            browser: null,
           },
           issuedAt,
           expiresAt,

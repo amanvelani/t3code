@@ -629,7 +629,6 @@ interface ReviewCommentColors {
   readonly codeBackground: ColorValue;
 }
 
-const failedMarkdownFaviconHosts = new Set<string>();
 const markdownLinkStyles = StyleSheet.create({
   inlineIcon: {
     width: 14,
@@ -637,19 +636,13 @@ const markdownLinkStyles = StyleSheet.create({
     marginHorizontal: 3,
     transform: [{ translateY: 2 }],
   },
-  favicon: {
-    borderRadius: 3,
-  },
 });
 
 const MarkdownExternalLink = memo(function MarkdownExternalLink(props: {
   readonly children: ReactNode;
   readonly color: string;
-  readonly host: string;
   readonly href: string;
 }) {
-  const [failed, setFailed] = useState(() => failedMarkdownFaviconHosts.has(props.host));
-
   return (
     <NativeText
       className="font-sans"
@@ -661,20 +654,7 @@ const MarkdownExternalLink = memo(function MarkdownExternalLink(props: {
         textDecorationLine: "none",
       }}
     >
-      {!failed ? (
-        <Image
-          source={{
-            uri: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(props.host)}&sz=32`,
-          }}
-          style={[markdownLinkStyles.inlineIcon, markdownLinkStyles.favicon]}
-          onError={() => {
-            failedMarkdownFaviconHosts.add(props.host);
-            setFailed(true);
-          }}
-        />
-      ) : (
-        <NativeText style={{ color: props.color }}>{" ◉ "}</NativeText>
-      )}
+      <NativeText style={{ color: props.color }}>{" ◉ "}</NativeText>
       {props.children}
     </NativeText>
   );
@@ -1072,11 +1052,7 @@ function useMarkdownStyles(
         }
         if (presentation.kind === "external") {
           return (
-            <MarkdownExternalLink
-              href={presentation.href}
-              host={presentation.host}
-              color={markdownLinkColor}
-            >
+            <MarkdownExternalLink href={presentation.href} color={markdownLinkColor}>
               {children}
             </MarkdownExternalLink>
           );

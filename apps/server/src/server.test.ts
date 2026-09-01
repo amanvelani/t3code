@@ -52,7 +52,6 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
@@ -71,7 +70,6 @@ import {
   HttpRouter,
   HttpServer,
 } from "effect/unstable/http";
-import { OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";
 import { vi } from "vite-plus/test";
@@ -132,7 +130,6 @@ import * as ServerSettings from "./serverSettings.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
-import * as BrowserTraceCollector from "./observability/BrowserTraceCollector.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
 import * as T3ProjectFileLoader from "./project/T3ProjectFileLoader.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
@@ -161,7 +158,6 @@ import * as NativeTelemetryClient from "./resourceTelemetry/NativeTelemetryClien
 import * as ResourceAttribution from "./resourceTelemetry/ResourceAttribution.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as UsageService from "./usage/UsageService.ts";
-import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as Data from "effect/Data";
 
 import { makeOrchestrationIntegrationHarness } from "../integration/OrchestrationEngineHarness.integration.ts";
@@ -281,12 +277,6 @@ const makeDefaultOrchestrationThreadShell = (
   };
 };
 
-const browserOtlpTracingLayer = Layer.mergeAll(
-  FetchHttpClient.layer,
-  OtlpSerialization.layerJson,
-  Layer.succeed(HttpClient.TracerDisabledWhen, () => true),
-);
-
 const makeAuthTestLayer = () =>
   EnvironmentAuth.layer.pipe(
     Layer.provide(SqlitePersistenceMemory),
@@ -297,105 +287,6 @@ const makeAuthTestLayer = () =>
       }),
     ),
   );
-
-const makeBrowserOtlpPayload = (spanName: string) =>
-  Effect.gen(function* () {
-    const collector = yield* Effect.acquireRelease(
-      Effect.promise(async () => {
-        const NodeHttp = await import("node:http");
-
-        return await new Promise<{
-          readonly close: () => Promise<void>;
-          readonly firstRequest: Promise<{
-            readonly body: string;
-            readonly contentType: string | null;
-          }>;
-          readonly url: string;
-        }>((resolve, reject) => {
-          let resolveFirstRequest:
-            | ((request: { readonly body: string; readonly contentType: string | null }) => void)
-            | undefined;
-          const firstRequest = new Promise<{
-            readonly body: string;
-            readonly contentType: string | null;
-          }>((resolveRequest) => {
-            resolveFirstRequest = resolveRequest;
-          });
-
-          const server = NodeHttp.createServer((request, response) => {
-            const chunks: Buffer[] = [];
-            request.on("data", (chunk) => {
-              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-            });
-            request.on("end", () => {
-              resolveFirstRequest?.({
-                body: Buffer.concat(chunks).toString("utf8"),
-                contentType: request.headers["content-type"] ?? null,
-              });
-              resolveFirstRequest = undefined;
-              response.statusCode = 204;
-              response.end();
-            });
-          });
-
-          server.on("error", reject);
-          server.listen(0, "127.0.0.1", () => {
-            const address = server.address();
-            if (!address || typeof address === "string") {
-              reject(new Error("Expected TCP collector address"));
-              return;
-            }
-
-            resolve({
-              url: `http://127.0.0.1:${address.port}/v1/traces`,
-              firstRequest,
-              close: () =>
-                new Promise<void>((resolveClose, rejectClose) => {
-                  server.close((error) => {
-                    if (error) {
-                      rejectClose(error);
-                      return;
-                    }
-                    resolveClose();
-                  });
-                }),
-            });
-          });
-        });
-      }),
-      ({ close }) => Effect.promise(close),
-    );
-
-    const runtime = ManagedRuntime.make(
-      OtlpTracer.layer({
-        url: collector.url,
-        exportInterval: "10 millis",
-        resource: {
-          serviceName: "t3-web",
-          attributes: {
-            "service.runtime": "t3-web",
-            "service.mode": "browser",
-            "service.version": "test",
-          },
-        },
-      }).pipe(Layer.provide(browserOtlpTracingLayer)),
-    );
-
-    try {
-      yield* Effect.promise(() => runtime.runPromise(Effect.void.pipe(Effect.withSpan(spanName))));
-    } finally {
-      yield* Effect.promise(() => runtime.dispose());
-    }
-
-    const request = yield* Effect.raceFirst(
-      Effect.promise(() => collector.firstRequest).pipe(Effect.orDie),
-      Effect.sleep(Duration.seconds(1)).pipe(
-        Effect.andThen(Effect.die(new Error("Timed out waiting for OTLP trace export"))),
-      ),
-    );
-    // @effect-diagnostics-next-line preferSchemaOverJson:off
-    return JSON.parse(request.body) as OtlpTracer.TraceData;
-  });
 
 const buildAppUnderTest = (options?: {
   config?: Partial<ServerConfig.ServerConfig["Service"]>;
@@ -421,10 +312,8 @@ const buildAppUnderTest = (options?: {
     terminalManager?: Partial<TerminalManager.TerminalManager["Service"]>;
     orchestrationEngine?: Partial<OrchestrationEngine.OrchestrationEngineService["Service"]>;
     threadDeletionReactor?: Partial<ThreadDeletionReactor["Service"]>;
-    analyticsService?: Partial<AnalyticsService.AnalyticsService["Service"]>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQuery.ProjectionSnapshotQuery["Service"]>;
     checkpointDiffQuery?: Partial<CheckpointDiffQuery.CheckpointDiffQuery["Service"]>;
-    browserTraceCollector?: Partial<BrowserTraceCollector.BrowserTraceCollector["Service"]>;
     serverLifecycleEvents?: Partial<ServerLifecycleEvents.ServerLifecycleEvents["Service"]>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartup.ServerRuntimeStartup["Service"]>;
     serverEnvironment?: Partial<ServerEnvironment.ServerEnvironment["Service"]>;
@@ -455,10 +344,6 @@ const buildAppUnderTest = (options?: {
       traceBatchWindowMs: 200,
       traceMaxBytes: 10 * 1024 * 1024,
       traceMaxFiles: 10,
-      otlpTracesUrl: undefined,
-      otlpMetricsUrl: undefined,
-      otlpExportIntervalMs: 10_000,
-      otlpServiceName: "t3-server",
       mode: "desktop",
       port: 0,
       host: "127.0.0.1",
@@ -876,19 +761,6 @@ const buildAppUnderTest = (options?: {
       Layer.provide(resourceTelemetryLayer),
       Layer.provide(UsageService.layerTest),
       Layer.provide(
-        Layer.mock(AnalyticsService.AnalyticsService)({
-          record: () => Effect.void,
-          flush: Effect.void,
-          ...options?.layers?.analyticsService,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(BrowserTraceCollector.BrowserTraceCollector)({
-          record: () => Effect.void,
-          ...options?.layers?.browserTraceCollector,
-        }),
-      ),
-      Layer.provide(
         Layer.mock(ServerLifecycleEvents.ServerLifecycleEvents)({
           publish: (event) => Effect.succeed({ ...(event as any), sequence: 1 }),
           snapshot: Effect.succeed({ sequence: 0, events: [] }),
@@ -1102,11 +974,6 @@ const exchangeAccessToken = (
   options?: {
     readonly headers?: Record<string, string>;
     readonly scope?: string;
-    readonly clientMetadata?: {
-      readonly label?: string;
-      readonly deviceType?: string;
-      readonly os?: string;
-    };
   },
 ) =>
   Effect.gen(function* () {
@@ -1125,11 +992,6 @@ const exchangeAccessToken = (
         scope:
           options?.scope ??
           "orchestration:read orchestration:operate terminal:operate review:write relay:read access:read access:write relay:write",
-        ...(options?.clientMetadata?.label ? { client_label: options.clientMetadata.label } : {}),
-        ...(options?.clientMetadata?.deviceType
-          ? { client_device_type: options.clientMetadata.deviceType }
-          : {}),
-        ...(options?.clientMetadata?.os ? { client_os: options.clientMetadata.os } : {}),
       }).toString(),
     });
     const body = yield* responseJsonEffect<{
@@ -1409,10 +1271,8 @@ const assertBrowserApiCorsPreflightHeaders = (
   ]);
   assert.deepEqual(splitHeaderTokens(headers["access-control-allow-headers"]), [
     "authorization",
-    "b3",
     "content-type",
     "dpop",
-    "traceparent",
   ]);
 };
 const crossOriginClientOrigin = "http://remote-client.test:3773";
@@ -1764,7 +1624,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("persists token exchange client display metadata for authorized-client listings", () =>
+  it.effect("does not persist request identifying metadata for authorized-client listings", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest({
         config: {
@@ -1788,11 +1648,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           "user-agent": "undici",
         },
         scope: "orchestration:read orchestration:operate terminal:operate review:write",
-        clientMetadata: {
-          label: "T3 Code Mobile",
-          deviceType: "mobile",
-          os: "iOS",
-        },
       });
 
       const clientsResponse = yield* HttpClient.get("/api/auth/clients", {
@@ -1815,13 +1670,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(pairingResponse.status, 200);
       assert.equal(response.status, 200);
       assert.equal(clientsResponse.status, 200);
-      assert.deepInclude(mobileClient?.client, {
-        label: "T3 Code Mobile",
-        deviceType: "mobile",
-        os: "iOS",
-        ipAddress: "127.0.0.1",
-        userAgent: "undici",
-      });
+      assert.deepInclude(mobileClient?.client, { deviceType: "unknown" });
+      assert.isFalse(Object.hasOwn(mobileClient?.client ?? {}, "label"));
+      assert.isFalse(Object.hasOwn(mobileClient?.client ?? {}, "ipAddress"));
+      assert.isFalse(Object.hasOwn(mobileClient?.client ?? {}, "userAgent"));
+      assert.isFalse(Object.hasOwn(mobileClient?.client ?? {}, "os"));
+      assert.isFalse(Object.hasOwn(mobileClient?.client ?? {}, "browser"));
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -4008,11 +3862,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.isDefined(pairedClientBefore);
       assert.deepInclude(pairedClientBefore?.client, {
         label: "Julius iPhone",
-        deviceType: "mobile",
-        os: "iOS",
-        browser: "Safari",
-        ipAddress: "127.0.0.1",
+        deviceType: "unknown",
       });
+      assert.isFalse(Object.hasOwn(pairedClientBefore?.client ?? {}, "os"));
+      assert.isFalse(Object.hasOwn(pairedClientBefore?.client ?? {}, "browser"));
+      assert.isFalse(Object.hasOwn(pairedClientBefore?.client ?? {}, "ipAddress"));
       assert.equal(revokeOthersResponse.status, 200);
       assert.equal(revokeOthersBody.revokedCount, 1);
       assert.equal(listAfterResponse.status, 200);
@@ -4285,295 +4139,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
         assert.equal(response.environment.environmentId, testEnvironmentDescriptor.environmentId);
         assert.equal(response.auth.policy, "desktop-managed-local");
-      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
-
-  it.effect("proxies browser OTLP trace exports through the server", () =>
-    Effect.gen(function* () {
-      const upstreamRequests: Array<{
-        readonly body: string;
-        readonly contentType: string | null;
-      }> = [];
-      const localTraceRecords: Array<unknown> = [];
-      const payload = {
-        resourceSpans: [
-          {
-            resource: {
-              attributes: [
-                {
-                  key: "service.name",
-                  value: { stringValue: "t3-web" },
-                },
-              ],
-            },
-            scopeSpans: [
-              {
-                scope: {
-                  name: "effect",
-                  version: "4.0.0-beta.43",
-                },
-                spans: [
-                  {
-                    traceId: "11111111111111111111111111111111",
-                    spanId: "2222222222222222",
-                    parentSpanId: "3333333333333333",
-                    name: "RpcClient.server.getSettings",
-                    kind: 3,
-                    startTimeUnixNano: "1000000",
-                    endTimeUnixNano: "2000000",
-                    attributes: [
-                      {
-                        key: "rpc.method",
-                        value: { stringValue: "server.getSettings" },
-                      },
-                    ],
-                    events: [
-                      {
-                        name: "http.request",
-                        timeUnixNano: "1500000",
-                        attributes: [
-                          {
-                            key: "http.status_code",
-                            value: { intValue: "200" },
-                          },
-                        ],
-                      },
-                    ],
-                    links: [],
-                    status: {
-                      code: "STATUS_CODE_OK",
-                    },
-                    flags: 1,
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      };
-
-      const collector = yield* Effect.acquireRelease(
-        Effect.promise(async () => {
-          const NodeHttp = await import("node:http");
-
-          return await new Promise<{
-            readonly close: () => Promise<void>;
-            readonly url: string;
-          }>((resolve, reject) => {
-            const server = NodeHttp.createServer((request, response) => {
-              const chunks: Buffer[] = [];
-              request.on("data", (chunk) => {
-                chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-              });
-              request.on("end", () => {
-                upstreamRequests.push({
-                  body: Buffer.concat(chunks).toString("utf8"),
-                  contentType: request.headers["content-type"] ?? null,
-                });
-                response.statusCode = 204;
-                response.end();
-              });
-            });
-
-            server.on("error", reject);
-            server.listen(0, "127.0.0.1", () => {
-              const address = server.address();
-              if (!address || typeof address === "string") {
-                reject(new Error("Expected TCP collector address"));
-                return;
-              }
-
-              resolve({
-                url: `http://127.0.0.1:${address.port}/v1/traces`,
-                close: () =>
-                  new Promise<void>((resolveClose, rejectClose) => {
-                    server.close((error) => {
-                      if (error) {
-                        rejectClose(error);
-                        return;
-                      }
-                      resolveClose();
-                    });
-                  }),
-              });
-            });
-          });
-        }),
-        ({ close }) => Effect.promise(close),
-      );
-
-      yield* buildAppUnderTest({
-        config: {
-          otlpTracesUrl: collector.url,
-        },
-        layers: {
-          browserTraceCollector: {
-            record: (records) =>
-              Effect.sync(() => {
-                localTraceRecords.push(...records);
-              }),
-          },
-        },
-      });
-
-      const response = yield* HttpClient.post("/api/observability/v1/traces", {
-        headers: {
-          cookie: yield* getAuthenticatedSessionCookieHeader(),
-          "content-type": "application/json",
-          origin: "http://localhost:5733",
-        },
-        // @effect-diagnostics-next-line preferSchemaOverJson:off
-        body: HttpBody.text(JSON.stringify(payload), "application/json"),
-      });
-
-      assert.equal(response.status, 204);
-      assert.equal(response.headers["access-control-allow-origin"], "*");
-      assert.deepEqual(localTraceRecords, [
-        {
-          type: "otlp-span",
-          name: "RpcClient.server.getSettings",
-          traceId: "11111111111111111111111111111111",
-          spanId: "2222222222222222",
-          parentSpanId: "3333333333333333",
-          sampled: true,
-          kind: "client",
-          startTimeUnixNano: "1000000",
-          endTimeUnixNano: "2000000",
-          durationMs: 1,
-          attributes: {
-            "rpc.method": "server.getSettings",
-          },
-          resourceAttributes: {
-            "service.name": "t3-web",
-          },
-          scope: {
-            name: "effect",
-            version: "4.0.0-beta.43",
-            attributes: {},
-          },
-          events: [
-            {
-              name: "http.request",
-              timeUnixNano: "1500000",
-              attributes: {
-                "http.status_code": "200",
-              },
-            },
-          ],
-          links: [],
-          status: {
-            code: "STATUS_CODE_OK",
-          },
-        },
-      ]);
-      assert.deepEqual(upstreamRequests, [
-        {
-          body: jsonRequestBody(payload),
-          contentType: "application/json",
-        },
-      ]);
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
-
-  it.effect("responds to browser OTLP trace preflight requests with CORS headers", () =>
-    Effect.gen(function* () {
-      yield* buildAppUnderTest();
-
-      const response = yield* HttpClient.options("/api/observability/v1/traces", {
-        headers: {
-          origin: "http://localhost:5733",
-          "access-control-request-method": "POST",
-          "access-control-request-headers": "content-type",
-        },
-      });
-
-      assert.equal(response.status, 204);
-      assert.equal(response.headers["access-control-allow-origin"], "*");
-      assert.deepEqual(splitHeaderTokens(response.headers["access-control-allow-methods"]), [
-        "GET",
-        "OPTIONS",
-        "POST",
-      ]);
-      assert.deepEqual(splitHeaderTokens(response.headers["access-control-allow-headers"]), [
-        "authorization",
-        "b3",
-        "content-type",
-        "dpop",
-        "traceparent",
-      ]);
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
-
-  it.effect(
-    "stores browser OTLP trace exports locally when no upstream collector is configured",
-    () =>
-      Effect.gen(function* () {
-        const localTraceRecords: Array<unknown> = [];
-        const payload = yield* makeBrowserOtlpPayload("client.test");
-        const resourceSpan = payload.resourceSpans[0];
-        const scopeSpan = resourceSpan?.scopeSpans[0];
-        const span = scopeSpan?.spans[0];
-
-        assert.notEqual(resourceSpan, undefined);
-        assert.notEqual(scopeSpan, undefined);
-        assert.notEqual(span, undefined);
-        if (!resourceSpan || !scopeSpan || !span) {
-          return;
-        }
-
-        yield* buildAppUnderTest({
-          layers: {
-            browserTraceCollector: {
-              record: (records) =>
-                Effect.sync(() => {
-                  localTraceRecords.push(...records);
-                }),
-            },
-          },
-        });
-
-        const response = yield* HttpClient.post("/api/observability/v1/traces", {
-          headers: {
-            cookie: yield* getAuthenticatedSessionCookieHeader(),
-            "content-type": "application/json",
-          },
-          // @effect-diagnostics-next-line preferSchemaOverJson:off
-          body: HttpBody.text(JSON.stringify(payload), "application/json"),
-        });
-
-        assert.equal(response.status, 204);
-        assert.equal(localTraceRecords.length, 1);
-        const record = localTraceRecords[0] as {
-          readonly type: string;
-          readonly name: string;
-          readonly traceId: string;
-          readonly spanId: string;
-          readonly kind: string;
-          readonly attributes: Readonly<Record<string, unknown>>;
-          readonly events: ReadonlyArray<unknown>;
-          readonly links: ReadonlyArray<unknown>;
-          readonly scope: {
-            readonly name?: string;
-            readonly attributes: Readonly<Record<string, unknown>>;
-          };
-          readonly resourceAttributes: Readonly<Record<string, unknown>>;
-          readonly status?: {
-            readonly code?: string;
-          };
-        };
-
-        assert.equal(record.type, "otlp-span");
-        assert.equal(record.name, span.name);
-        assert.equal(record.traceId, span.traceId);
-        assert.equal(record.spanId, span.spanId);
-        assert.equal(record.kind, "internal");
-        assert.deepEqual(record.attributes, {});
-        assert.deepEqual(record.events, []);
-        assert.deepEqual(record.links, []);
-        assert.equal(record.scope.name, scopeSpan.scope.name);
-        assert.deepEqual(record.scope.attributes, {});
-        assert.equal(record.resourceAttributes["service.name"], "t3-web");
-        assert.equal(record.status?.code, String(span.status.code));
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -4963,10 +4528,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       } as const;
 
       yield* buildAppUnderTest({
-        config: {
-          otlpTracesUrl: "http://localhost:4318/v1/traces",
-          otlpMetricsUrl: "http://localhost:4318/v1/metrics",
-        },
         layers: {
           keybindings: {
             loadConfigState: Effect.succeed({
@@ -4997,10 +4558,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         assert.deepEqual(first.config.providers, providers);
         assert.equal(path.basename(first.config.observability.logsDirectoryPath), "logs");
         assert.equal(first.config.observability.localTracingEnabled, true);
-        assert.equal(first.config.observability.otlpTracesUrl, "http://localhost:4318/v1/traces");
-        assert.equal(first.config.observability.otlpTracesEnabled, true);
-        assert.equal(first.config.observability.otlpMetricsUrl, "http://localhost:4318/v1/metrics");
-        assert.equal(first.config.observability.otlpMetricsEnabled, true);
         assert.deepEqual(first.config.settings, DEFAULT_SERVER_SETTINGS);
       }
       assert.deepEqual(second, {
@@ -5577,230 +5134,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.isAtLeast(response.sequence, 0);
       assert.equal(stat.type, "Directory");
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
-
-  it.effect("records thread analytics only after a client command succeeds", () =>
-    Effect.gen(function* () {
-      const effects: string[] = [];
-      const analyticsProperties: Array<Readonly<Record<string, unknown>> | undefined> = [];
-      const failedCommandId = CommandId.make("cmd-thread-create-failed");
-
-      yield* buildAppUnderTest({
-        layers: {
-          analyticsService: {
-            record: (event, properties) =>
-              Effect.sync(() => {
-                effects.push(`analytics:${event}`);
-                analyticsProperties.push(properties);
-              }),
-          },
-          orchestrationEngine: {
-            dispatch: (command) =>
-              Effect.sync(() => effects.push(`dispatch:${command.commandId}`)).pipe(
-                Effect.flatMap(() =>
-                  command.commandId === failedCommandId
-                    ? Effect.fail(
-                        new OrchestrationListenerCallbackError({
-                          listener: "domain-event",
-                          detail: "thread creation failed",
-                        }),
-                      )
-                    : Effect.succeed({ sequence: 1 }),
-                ),
-              ),
-          },
-        },
-      });
-
-      const createThreadCommand = (commandId: CommandId, threadId: ThreadId) =>
-        ({
-          type: "thread.create",
-          commandId,
-          threadId,
-          projectId: defaultProjectId,
-          title: "Analytics test",
-          modelSelection: defaultModelSelection,
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          branch: null,
-          worktreePath: null,
-          createdAt: "2026-01-01T00:00:00.000Z",
-        }) as const;
-
-      const wsUrl = yield* getWsServerUrl(
-        "/ws?clientSurface=mobile&clientAppVersion=1.2.3&clientDeviceType=phone&clientOs=iOS&clientOsMajorVersion=18&clientDeviceModel=iPhone+15+Pro&connectionMethod=relay",
-      );
-      yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) =>
-          Effect.gen(function* () {
-            const failed = yield* client[ORCHESTRATION_WS_METHODS.dispatchCommand](
-              createThreadCommand(failedCommandId, ThreadId.make("thread-create-failed")),
-            ).pipe(Effect.result);
-
-            assert.equal(failed._tag, "Failure");
-            assert.deepEqual(effects, [
-              "analytics:client.connected",
-              "dispatch:cmd-thread-create-failed",
-            ]);
-
-            const succeeded = yield* client[ORCHESTRATION_WS_METHODS.dispatchCommand](
-              createThreadCommand(
-                CommandId.make("cmd-thread-create-succeeded"),
-                ThreadId.make("thread-create-succeeded"),
-              ),
-            );
-
-            assert.equal(succeeded.sequence, 1);
-          }),
-        ),
-      );
-
-      assert.deepEqual(effects, [
-        "analytics:client.connected",
-        "dispatch:cmd-thread-create-failed",
-        "dispatch:cmd-thread-create-succeeded",
-        "analytics:client.thread.started",
-      ]);
-      assert.deepEqual(analyticsProperties, [
-        {
-          surface: "mobile",
-          appVersion: "1.2.3",
-          clientAppVersion: "1.2.3",
-          clientOs: "iOS",
-          os: "iOS",
-          clientDeviceType: "phone",
-          osMajorVersion: 18,
-          clientOsMajorVersion: 18,
-          deviceModel: "iPhone 15 Pro",
-          clientDeviceModel: "iPhone 15 Pro",
-          connectionMethod: "relay",
-        },
-        {
-          surface: "mobile",
-          appVersion: "1.2.3",
-          clientAppVersion: "1.2.3",
-          clientOs: "iOS",
-          os: "iOS",
-          clientDeviceType: "phone",
-          osMajorVersion: 18,
-          clientOsMajorVersion: 18,
-          deviceModel: "iPhone 15 Pro",
-          clientDeviceModel: "iPhone 15 Pro",
-          connectionMethod: "relay",
-        },
-      ]);
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
-
-  it.effect("keeps telemetry separate for simultaneous clients", () =>
-    Effect.gen(function* () {
-      const analyticsEvents: Array<{
-        event: string;
-        properties: Readonly<Record<string, unknown>> | undefined;
-      }> = [];
-
-      yield* buildAppUnderTest({
-        layers: {
-          analyticsService: {
-            record: (event, properties) =>
-              Effect.sync(() => analyticsEvents.push({ event, properties })),
-          },
-          orchestrationEngine: {
-            dispatch: () => Effect.succeed({ sequence: 1 }),
-          },
-        },
-      });
-
-      const webUrl = yield* getWsServerUrl(
-        "/ws?clientSurface=web&clientAppVersion=2.0.0&clientDeviceType=desktop&clientOs=Windows&clientWebDeployment=hosted&clientBrowser=Chrome&connectionMethod=direct",
-      );
-      const mobileUrl = yield* getWsServerUrl(
-        "/ws?clientSurface=mobile&clientAppVersion=3.0.0&clientDeviceType=tablet&clientOs=Android&clientOsMajorVersion=15&clientDeviceModel=Pixel+Tablet&connectionMethod=relay",
-      );
-      const turnCommand = (client: string) => ({
-        type: "thread.turn.start" as const,
-        commandId: CommandId.make(`cmd-${client}-turn`),
-        threadId: ThreadId.make(`thread-${client}`),
-        message: {
-          messageId: MessageId.make(`message-${client}`),
-          role: "user" as const,
-          text: "hello",
-          attachments: [],
-        },
-        modelSelection: defaultModelSelection,
-        runtimeMode: "full-access" as const,
-        interactionMode: "default" as const,
-        createdAt: "2026-01-01T00:00:00.000Z",
-      });
-
-      yield* Effect.scoped(
-        withWsRpcClient(webUrl, (webClient) =>
-          withWsRpcClient(mobileUrl, (mobileClient) =>
-            Effect.gen(function* () {
-              yield* mobileClient[ORCHESTRATION_WS_METHODS.dispatchCommand](turnCommand("mobile"));
-              yield* webClient[ORCHESTRATION_WS_METHODS.dispatchCommand](turnCommand("web"));
-            }),
-          ),
-        ),
-      );
-
-      assert.deepEqual(
-        analyticsEvents
-          .filter(({ event }) => event === "client.turn.requested")
-          .map(({ properties }) => properties),
-        [
-          {
-            surface: "mobile",
-            appVersion: "3.0.0",
-            clientAppVersion: "3.0.0",
-            clientOs: "Android",
-            os: "Android",
-            clientDeviceType: "tablet",
-            osMajorVersion: 15,
-            clientOsMajorVersion: 15,
-            deviceModel: "Pixel Tablet",
-            clientDeviceModel: "Pixel Tablet",
-            connectionMethod: "relay",
-          },
-          {
-            surface: "web",
-            appVersion: "2.0.0",
-            clientAppVersion: "2.0.0",
-            clientOs: "Windows",
-            clientDeviceType: "desktop",
-            webDeployment: "hosted",
-            clientBrowser: "Chrome",
-            connectionMethod: "direct",
-          },
-        ],
-      );
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
-
-  it.effect("ignores invalid client telemetry without rejecting the connection", () =>
-    Effect.gen(function* () {
-      const connectedProperties: Array<Readonly<Record<string, unknown>> | undefined> = [];
-
-      yield* buildAppUnderTest({
-        layers: {
-          analyticsService: {
-            record: (event, properties) =>
-              event === "client.connected"
-                ? Effect.sync(() => connectedProperties.push(properties))
-                : Effect.void,
-          },
-        },
-      });
-
-      const invalidUrl = yield* getWsServerUrl(
-        "/ws?clientSurface=watch&clientDeviceType=television&clientOs=Plan9&clientWebDeployment=cdn&clientBrowser=&clientOsMajorVersion=-1&connectionMethod=teleport",
-      );
-      yield* Effect.scoped(
-        withWsRpcClient(invalidUrl, (client) => client[WS_METHODS.serverGetSettings]({})),
-      );
-
-      assert.deepEqual(connectedProperties, [{}]);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

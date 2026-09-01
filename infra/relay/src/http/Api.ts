@@ -1,7 +1,6 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import { sql as drizzleSql } from "drizzle-orm";
 import * as Crypto from "effect/Crypto";
-import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -10,13 +9,10 @@ import * as Option from "effect/Option";
 import * as Record from "effect/Record";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
-import * as Tracer from "effect/Tracer";
 import * as HttpEffect from "effect/unstable/http/HttpEffect";
-import * as HttpMiddleware from "effect/unstable/http/HttpMiddleware";
 import * as HttpRouter from "effect/unstable/http/HttpRouter";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
-import * as HttpTraceContext from "effect/unstable/http/HttpTraceContext";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 import * as HttpApiError from "effect/unstable/httpapi/HttpApiError";
 import { encodeOAuthScope } from "@t3tools/shared/oauthScope";
@@ -68,18 +64,11 @@ import * as ManagedEndpointProvider from "../environments/ManagedEndpointProvide
 import * as ManagedEndpointAllocations from "../environments/ManagedEndpointAllocations.ts";
 import * as EnvironmentPublishSignatures from "../environments/EnvironmentPublishSignatures.ts";
 import * as MobileRegistrations from "../agentActivity/MobileRegistrations.ts";
-import { withSpanAttributes } from "../observability.ts";
 import * as RelayDb from "../db.ts";
 
 const relayCorsAllowedMethods = ["GET", "POST", "DELETE", "OPTIONS"] as const;
-const relayCorsAllowedHeaders = [
-  "authorization",
-  "b3",
-  "traceparent",
-  "content-type",
-  "dpop",
-] as const;
-const relayCorsExposedHeaders = ["traceparent", "www-authenticate"] as const;
+const relayCorsAllowedHeaders = ["authorization", "content-type", "dpop"] as const;
+const relayCorsExposedHeaders = ["www-authenticate"] as const;
 
 const relayCorsHeaders = {
   "access-control-allow-origin": "*",
@@ -110,20 +99,6 @@ const appendRelayDpopChallengeHeader = HttpEffect.appendPreResponseHandler((_req
       : response,
   ),
 );
-
-const appendRelayTraceContextResponseHeader = Effect.gen(function* () {
-  const span = yield* Effect.currentParentSpan;
-  if (span._tag !== "Span") {
-    return;
-  }
-  const traceparent = HttpTraceContext.toHeaders(span).traceparent;
-  if (traceparent === undefined) {
-    return;
-  }
-  yield* HttpEffect.appendPreResponseHandler((_request, response) =>
-    Effect.succeed(HttpServerResponse.setHeader(response, "traceparent", traceparent)),
-  );
-}).pipe(Effect.ignore);
 
 export const relayCors = HttpRouter.middleware(
   Effect.fnUntraced(function* <E, R>(
@@ -160,14 +135,11 @@ export const relayDocsRedirectRoute = HttpRouter.add(
 
 // Shorter than the mobile client's 10s request timeout on purpose: when a
 // request hangs (e.g. a stuck upstream query), the client would otherwise
-// abort first, the invocation would die with the request span still open, and
-// the batched spans would never export — leaving no server-side trace at all.
-// Failing server-side first turns the hang into a completed 504 whose trace
-// contains the exact child span that stalled, and the response still carries
-// the traceparent back to the client.
+// abort first and the invocation could remain open until the platform kills it.
+// Failing server-side first turns the hang into a completed 504.
 export const RELAY_REQUEST_DEADLINE_MS = 9_000;
 
-const relayRequestDeadline = <E, R>(
+export const relayRequestDeadline = <E, R>(
   httpEffect: Effect.Effect<
     HttpServerResponse.HttpServerResponse,
     E,
@@ -179,59 +151,16 @@ const relayRequestDeadline = <E, R>(
     Effect.flatMap(
       Option.match({
         onNone: () =>
-          Effect.gen(function* () {
-            const request = yield* HttpServerRequest.HttpServerRequest;
-            yield* Effect.logError("relay request exceeded deadline", {
-              "http.method": request.method,
-              "http.url": request.url,
-              "relay.request.deadline_ms": RELAY_REQUEST_DEADLINE_MS,
-            });
-            yield* Effect.annotateCurrentSpan({
-              "relay.request.deadline_exceeded": true,
-            });
-            return HttpServerResponse.jsonUnsafe(
+          Effect.succeed(
+            HttpServerResponse.jsonUnsafe(
               { error: "relay_request_deadline_exceeded" },
               { status: 504 },
-            );
-          }),
+            ),
+          ),
         onSome: Effect.succeed,
       }),
     ),
   );
-
-export const traceRelayHttpRequest = <E, R>(
-  httpEffect: Effect.Effect<
-    HttpServerResponse.HttpServerResponse,
-    E,
-    HttpServerRequest.HttpServerRequest | R
-  >,
-) =>
-  // HttpMiddleware finalizes its span on the dispatcher; do not close a request-scoped exporter first.
-  HttpMiddleware.tracer(
-    appendRelayTraceContextResponseHeader.pipe(Effect.andThen(relayRequestDeadline(httpEffect))),
-  ).pipe(Effect.ensuring(Effect.yieldNow));
-
-export const traceRelayHttpRequestWith = <E, R, LayerError, LayerRequirements>(
-  httpEffect: Effect.Effect<
-    HttpServerResponse.HttpServerResponse,
-    E,
-    HttpServerRequest.HttpServerRequest | R
-  >,
-  tracerLayer: Layer.Layer<never, LayerError, LayerRequirements>,
-) =>
-  traceRelayHttpRequest(httpEffect).pipe(
-    Effect.provide(Layer.merge(tracerLayer, httpHeaderRedactionLayer)),
-  );
-
-export const withoutCapturedParentSpan = <A, E, R>(
-  effect: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E, R> =>
-  Effect.withFiber((fiber) => {
-    const context = fiber.context;
-    // HttpApiBuilder captures its build context for route handlers; an event parent would outlive export.
-    fiber.setContext(Context.omit(Tracer.ParentSpan)(context));
-    return effect.pipe(Effect.ensuring(Effect.sync(() => fiber.setContext(context))));
-  });
 
 export const relayClientAuthLayer = Layer.effect(
   RelayClientAuth,
@@ -241,27 +170,13 @@ export const relayClientAuthLayer = Layer.effect(
       clientBearer: Effect.fn("relay.auth.client.bearer")(function* (httpEffect, { credential }) {
         const token = readHttpAuthorizationCredential(credential);
         const verified = yield* verifyRelayClientBearerToken(config, token).pipe(
-          Effect.tapError((error) =>
-            Effect.annotateCurrentSpan(
-              "relay.auth.clerk_verification_failure",
-              clerkVerificationFailureReason(error.cause),
-            ),
-          ),
           Effect.catch(() => relayAuthInvalidError("invalid_bearer")),
         );
         if (!verified.sub) {
-          yield* Effect.annotateCurrentSpan({
-            "relay.auth.clerk_verification_failure": "missing_subject",
-          });
           return yield* relayAuthInvalidError("invalid_bearer");
         }
-        yield* Effect.annotateCurrentSpan({
-          "relay.auth.mode": verified.mode,
-          "relay.auth.subject": verified.sub,
-        });
 
         return yield* httpEffect.pipe(
-          withSpanAttributes({ "user.id": verified.sub }),
           Effect.provideService(RelayClientPrincipal, {
             userId: verified.sub,
             token,
@@ -291,13 +206,7 @@ export const relayEnvironmentAuthLayer = Layer.effect(
         if (principal._tag === "None") {
           return yield* relayAuthInvalidError("not_authorized");
         }
-        yield* Effect.annotateCurrentSpan({
-          "relay.auth.mode": "environment_credential",
-        });
         return yield* httpEffect.pipe(
-          withSpanAttributes({
-            "relay.environment_id": principal.value.environmentId,
-          }),
           Effect.provideService(RelayEnvironmentPrincipal, principal.value),
         );
       }),
@@ -325,12 +234,7 @@ export const relayDpopClientAuthLayer = Layer.effect(
         if (!verified) {
           return yield* relayAuthInvalidError("invalid_bearer");
         }
-        yield* Effect.annotateCurrentSpan({
-          "relay.auth.mode": "dpop",
-          "relay.auth.subject": verified.sub,
-        });
         return yield* httpEffect.pipe(
-          withSpanAttributes({ "user.id": verified.sub }),
           Effect.provideService(RelayClientPrincipal, {
             userId: verified.sub,
             token,
@@ -703,11 +607,6 @@ export const tokenApi = HttpApiBuilder.group(
           clientId: args.payload.client_id,
           scope: args.payload.scope,
         });
-        yield* Effect.annotateCurrentSpan({
-          "relay.auth.mode": "clerk_bearer_token_exchange",
-          "relay.oauth.client_id": args.payload.client_id,
-          "relay.oauth.scopes": args.payload.scope,
-        });
         if (args.payload.resource !== issuer || requestedScopes === null) {
           return yield* new HttpApiError.Unauthorized({});
         }
@@ -1075,9 +974,6 @@ function mapRelayCommonApiErrors(authReason: RelayAuthInvalidReason) {
   const mapError = Effect.fnUntraced(function* <E>(error: E) {
     const traceId = yield* currentTraceId;
     if (isDpopProofRejected(error)) {
-      yield* Effect.annotateCurrentSpan({
-        "relay.dpop.failure_code": error.code,
-      });
       return yield* Effect.fail(
         new RelayAuthInvalidError({
           code: "auth_invalid",
@@ -1090,11 +986,6 @@ function mapRelayCommonApiErrors(authReason: RelayAuthInvalidReason) {
       );
     }
     if (isHttpUnauthorized(error)) {
-      if (authReason === "invalid_dpop") {
-        yield* Effect.annotateCurrentSpan({
-          "relay.dpop.failure_code": "invalid_proof",
-        });
-      }
       return yield* Effect.fail(
         new RelayAuthInvalidError({
           code: "auth_invalid",
@@ -1183,30 +1074,6 @@ function resolveConnectClientKeyThumbprint(payload: RelayEnvironmentConnectReque
   return requestedThumbprint;
 }
 
-function safeAuthFailureReason(value: string): string {
-  return /^[a-z0-9._-]+$/i.test(value) ? value : "unknown";
-}
-
-function clerkVerificationFailureReason(cause: unknown): string {
-  if (
-    cause instanceof Error &&
-    (cause.message.startsWith("Invalid JWT audience claim ") ||
-      cause.message.startsWith("Invalid JWT audience claim array "))
-  ) {
-    return "audience_mismatch";
-  }
-  if (typeof cause === "object" && cause !== null && "reason" in cause) {
-    const reason = (cause as { readonly reason?: unknown }).reason;
-    if (typeof reason === "string" && reason.length > 0) {
-      return safeAuthFailureReason(reason);
-    }
-  }
-  if (cause instanceof Error && cause.name) {
-    return safeAuthFailureReason(cause.name);
-  }
-  return "unknown";
-}
-
 function hasExpectedClerkAudience(audience: unknown, expectedAudience: string): boolean {
   return typeof audience === "string"
     ? audience === expectedAudience
@@ -1225,11 +1092,7 @@ function verifyClerkBearerToken(
         audience: config.clerkJwtAudience,
       }),
     catch: (cause) => new ClerkTokenVerificationFailed({ cause }),
-  }).pipe(
-    Effect.withSpan("verify_clerk_bearer_token", {
-      attributes: { "relay.auth.token_length": token.length },
-    }),
-  );
+  });
 }
 
 function verifyClerkOAuthBearerToken(
@@ -1279,7 +1142,6 @@ export function verifyRelayClientBearerToken(
 const requireDpopPrincipalScope = Effect.fn("relay.api.require_dpop_principal_scope")(function* (
   scope: RelayDpopAccessTokenScope,
 ) {
-  yield* Effect.annotateCurrentSpan({ "relay.dpop.required_scope": scope });
   const principal = yield* RelayClientPrincipal;
   if (!principal.proofKeyThumbprint || !principal.dpopScopes?.includes(scope)) {
     return yield* new HttpApiError.Unauthorized({});
@@ -1331,10 +1193,5 @@ const requireDpopProof = Effect.fn("relay.api.require_dpop_proof")(function* (op
 
 const relayAuthInvalidError = Effect.fnUntraced(function* (reason: RelayAuthInvalidReason) {
   const traceId = yield* currentTraceId;
-  yield* Effect.annotateCurrentSpan({
-    "relay.trace_id": traceId,
-    "relay.error.outbound_tag": "RelayAuthInvalidError",
-    "relay.error.outbound_reason": reason,
-  });
   return yield* new RelayAuthInvalidError({ code: "auth_invalid", reason, traceId });
 });

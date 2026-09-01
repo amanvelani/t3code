@@ -9,7 +9,6 @@ import * as TestClock from "effect/testing/TestClock";
 import { DPOP_UNKNOWN_HINT } from "../relay/errorPresentation.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
 import { remoteHttpClientLayer } from "../rpc/http.ts";
-import * as ClientCapabilities from "../platform/capabilities.ts";
 import * as RemoteEnvironmentAuthorization from "./service.ts";
 import * as TokenStore from "./tokenStore.ts";
 
@@ -128,17 +127,6 @@ const makeHarness = Effect.fn("TestRemoteAuthorization.makeHarness")(function* (
         remoteHttpClientLayer(fetch.fetchFn),
         Layer.succeed(ManagedRelay.ManagedRelayDpopSigner, signer),
         Layer.succeed(TokenStore.RemoteDpopAccessTokenStore, tokenStore),
-        Layer.succeed(
-          ClientCapabilities.ClientPresentation,
-          ClientCapabilities.ClientPresentation.of({
-            metadata: {
-              label: "T3 Code Test",
-              deviceType: "mobile",
-              os: "test",
-            },
-            scopes: AuthStandardClientScopes,
-          }),
-        ),
       ),
     ),
   );
@@ -175,7 +163,6 @@ describe("RemoteEnvironmentAuthorization", () => {
             httpBaseUrl: ENDPOINT.httpBaseUrl,
             wsBaseUrl: ENDPOINT.wsBaseUrl,
             bearerToken: "bearer-token",
-            connectionMethod: "direct",
           });
         return [yield* authorize(), yield* authorize()] as const;
       }).pipe(Effect.provide(harness.layer));
@@ -213,7 +200,6 @@ describe("RemoteEnvironmentAuthorization", () => {
             httpBaseUrl: ENDPOINT.httpBaseUrl,
             wsBaseUrl: ENDPOINT.wsBaseUrl,
             bearerToken: "bearer-token",
-            connectionMethod: "direct",
           });
 
         yield* authorize();
@@ -258,7 +244,7 @@ describe("RemoteEnvironmentAuthorization", () => {
       }).pipe(Effect.provide(harness.layer));
 
       expect(authorized.socketUrl).toContain("wsTicket=cached-ticket");
-      expect(authorized.socketUrl).toContain("connectionMethod=relay");
+      expect(authorized.socketUrl).not.toContain("connectionMethod=");
       expect(yield* Ref.get(harness.bootstrapCalls)).toBe(0);
       expect(harness.fetch.calls).toHaveLength(1);
       expect(String(harness.fetch.calls[0]?.[0])).toBe(

@@ -50,11 +50,10 @@ requested_token_type=urn:ietf:params:oauth:token-type:access_token
 scope=orchestration:read orchestration:operate terminal:operate review:write relay:read
 ```
 
-Clients may additionally submit `client_label`, `client_device_type`, and
-`client_os` extension parameters so the authorized-clients UI can identify the
-device that established the session. These are presentation hints only; the
-environment derives transport metadata such as IP address and user agent from
-the request and does not use these fields for authorization.
+The exchange does not collect client identity or transport metadata. The
+authorized-clients UI may display an optional label supplied explicitly by the
+user when a pairing credential is created; otherwise new sessions are shown as
+an unknown device.
 
 The response has the token-exchange shape:
 

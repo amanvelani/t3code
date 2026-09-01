@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId } from "@t3tools/contracts";
 
 import {
@@ -6,83 +6,8 @@ import {
   redactPairingCredential,
   toStableSavedRemoteConnection,
 } from "./connection";
-import { authClientMetadata } from "./authClientMetadata";
-
-const mobilePlatform = vi.hoisted(() => ({ OS: "ios" as "ios" | "android" }));
-const mobileDevice = vi.hoisted(() => ({
-  deviceType: 1,
-  DeviceType: {
-    UNKNOWN: 0,
-    PHONE: 1,
-    TABLET: 2,
-    DESKTOP: 3,
-    TV: 4,
-  },
-  osVersion: "18.4.1",
-  modelName: "iPhone 15 Pro",
-}));
-
-vi.mock("./runtime", () => ({
-  runtime: {
-    runPromise: vi.fn(),
-  },
-}));
-
-vi.mock("react-native", () => ({
-  Platform: mobilePlatform,
-}));
-
-vi.mock("expo-device", () => mobileDevice);
 
 describe("mobile remote connection records", () => {
-  afterEach(() => {
-    mobilePlatform.OS = "ios";
-    mobileDevice.deviceType = mobileDevice.DeviceType.PHONE;
-    mobileDevice.osVersion = "18.4.1";
-    mobileDevice.modelName = "iPhone 15 Pro";
-  });
-
-  it("identifies mobile token exchanges for authorized-client presentation", () => {
-    expect(authClientMetadata()).toEqual({
-      label: "T3 Code Mobile",
-      deviceType: "mobile",
-      os: "iOS",
-      osMajorVersion: 18,
-      deviceModel: "iPhone 15 Pro",
-      surface: "mobile",
-    });
-  });
-
-  it("includes only the Android major version and hardware model", () => {
-    mobilePlatform.OS = "android";
-    mobileDevice.osVersion = "15.2.1";
-    mobileDevice.modelName = "Pixel 9";
-
-    expect(authClientMetadata()).toMatchObject({
-      os: "Android",
-      osMajorVersion: 15,
-      deviceModel: "Pixel 9",
-    });
-  });
-
-  it("identifies native tablets separately from phones", () => {
-    mobileDevice.deviceType = mobileDevice.DeviceType.TABLET;
-    mobileDevice.modelName = "iPad Pro 13-inch";
-
-    expect(authClientMetadata()).toMatchObject({
-      deviceType: "tablet",
-      os: "iOS",
-      deviceModel: "iPad Pro 13-inch",
-    });
-  });
-
-  it("includes the mobile app version when the client provides it", () => {
-    expect(authClientMetadata("1.2.3")).toMatchObject({
-      surface: "mobile",
-      appVersion: "1.2.3",
-    });
-  });
-
   it("removes one-time bootstrap credentials before persisting pairing URLs", () => {
     expect(redactPairingCredential("https://desktop.example/#token=bootstrap-token")).toBe(
       "https://desktop.example/",

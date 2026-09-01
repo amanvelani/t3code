@@ -1,6 +1,4 @@
 import {
-  type AuthClientPresentationMetadata,
-  type AuthEnvironmentScope,
   type DesktopSshEnvironmentBootstrap,
   type DesktopSshEnvironmentTarget,
   EnvironmentId,
@@ -34,14 +32,6 @@ export class RelayDeviceIdentity extends Context.Service<
     readonly deviceId: Effect.Effect<Option.Option<string>, ConnectionAttemptError>;
   }
 >()("@t3tools/client-runtime/platform/capabilities/RelayDeviceIdentity") {}
-
-export class ClientPresentation extends Context.Service<
-  ClientPresentation,
-  {
-    readonly metadata: AuthClientPresentationMetadata;
-    readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
-  }
->()("@t3tools/client-runtime/platform/capabilities/ClientPresentation") {}
 
 export class PrimaryEnvironmentAuth extends Context.Service<
   PrimaryEnvironmentAuth,
