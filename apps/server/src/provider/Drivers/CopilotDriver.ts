@@ -1,14 +1,28 @@
-import { CopilotSettings, ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
+/**
+ * CopilotDriver — `ProviderDriver` for GitHub Copilot, backed by the first-party
+ * `@github/copilot-sdk` (see CopilotAdapter / CopilotProvider). The SDK spawns
+ * and drives the installed `copilot` runtime binary over its typed JSON-RPC
+ * protocol for both interactive sessions and one-shot text generation.
+ *
+ * @module provider/Drivers/CopilotDriver
+ */
+import {
+  CopilotSettings,
+  ProviderDriverKind,
+  type ServerProvider,
+  type ServerProviderModel,
+} from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import { HttpClient } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import { ServerConfig } from "../../config.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
+import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { makeCopilotTextGeneration } from "../../textGeneration/CopilotTextGeneration.ts";
 import { ProviderDriverError } from "../Errors.ts";
@@ -28,7 +42,7 @@ import {
 import type { ServerProviderDraft } from "../providerSnapshot.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
 import {
-  makeManualOnlyProviderMaintenanceCapabilities,
+  makeProviderMaintenanceCapabilities,
   makeStaticProviderMaintenanceResolver,
   resolveProviderMaintenanceCapabilitiesEffect,
 } from "../providerMaintenance.ts";
@@ -37,13 +51,18 @@ import {
   makeProviderSnapshotSettingsSource,
   type ProviderSnapshotSettings,
 } from "../providerUpdateSettings.ts";
+
 const decodeCopilotSettings = Schema.decodeSync(CopilotSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("copilot");
+
 const UPDATE = makeStaticProviderMaintenanceResolver(
-  makeManualOnlyProviderMaintenanceCapabilities({
+  makeProviderMaintenanceCapabilities({
     provider: DRIVER_KIND,
     packageName: null,
+    updateExecutable: "copilot",
+    updateArgs: ["update"],
+    updateLockKey: "copilot-update",
   }),
 );
 
@@ -87,8 +106,8 @@ export const CopilotDriver: ProviderDriver<CopilotSettings, CopilotDriverEnv> = 
       const crypto = yield* Crypto.Crypto;
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const httpClient = yield* HttpClient.HttpClient;
-      const serverSettings = yield* ServerSettingsService;
       const eventLoggers = yield* ProviderEventLoggers;
+      const serverSettings = yield* ServerSettingsService;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
@@ -100,11 +119,17 @@ export const CopilotDriver: ProviderDriver<CopilotSettings, CopilotDriverEnv> = 
         accentColor,
         continuationGroupKey: continuationIdentity.continuationKey,
       });
-      const effectiveConfig = { ...config, enabled } satisfies CopilotSettings;
+      const effectiveConfig = {
+        ...config,
+        enabled,
+      } satisfies CopilotSettings;
       const maintenanceCapabilities = yield* resolveProviderMaintenanceCapabilitiesEffect(UPDATE, {
         binaryPath: effectiveConfig.binaryPath,
         env: processEnv,
       });
+      // Remembers the last successfully discovered catalog so a status refresh
+      // whose discovery fails/times out keeps showing the previous models.
+      const discoveredModelsRef = yield* Ref.make<ReadonlyArray<ServerProviderModel>>([]);
 
       const adapter = yield* makeCopilotAdapter(effectiveConfig, {
         environment: processEnv,
@@ -113,7 +138,9 @@ export const CopilotDriver: ProviderDriver<CopilotSettings, CopilotDriverEnv> = 
       });
       const textGeneration = yield* makeCopilotTextGeneration(effectiveConfig, processEnv);
 
-      const checkProvider = checkCopilotProviderStatus(effectiveConfig, processEnv).pipe(
+      const checkProvider = checkCopilotProviderStatus(effectiveConfig, processEnv, {
+        discoveredModelsRef,
+      }).pipe(
         Effect.map(stampIdentity),
         Effect.provideService(Crypto.Crypto, crypto),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
@@ -134,6 +161,7 @@ export const CopilotDriver: ProviderDriver<CopilotSettings, CopilotDriverEnv> = 
             maintenanceCapabilities,
             enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
             publishSnapshot,
+            stampIdentity,
             httpClient,
           }),
       }).pipe(
@@ -142,7 +170,7 @@ export const CopilotDriver: ProviderDriver<CopilotSettings, CopilotDriverEnv> = 
             new ProviderDriverError({
               driver: DRIVER_KIND,
               instanceId,
-              detail: `Failed to build GitHub Copilot snapshot: ${cause.message ?? String(cause)}`,
+              detail: "Failed to build the Copilot provider snapshot.",
               cause,
             }),
         ),

@@ -24,11 +24,11 @@ adapter in a child scope. Adapter implementations live beside them in
 [`ProviderAdapter.ts`][adapter]. Read the driver plus its adapter to see how a specific agent's
 transport, config, and event shapes are mapped.
 
-The `copilot` driver speaks ACP end to end (`copilot --acp`) with no provider-specific protocol
-layer: skills arrive as slash commands via `available_commands_update`, and subagent launches are
-detected from Copilot's `task` tool-call input shape (`rawInput.agent_type`). Background launches
-(`mode: "background"`) park the turn settlement until a follow-up call reports the agent idle, so
-post-`end_turn` progress streams into the original turn (see `CopilotAdapter.ts`).
+The `copilot` driver uses the first-party `@github/copilot-sdk` over stdio. A scoped SDK client is
+shared by provider instances, while each T3 session owns one SDK session and translates SDK
+assistant, reasoning, tool, permission, and lifecycle events into provider runtime events. Model
+discovery comes from the SDK, including per-model reasoning-effort and long-context capabilities;
+turn cancellation and conversation rollback use the SDK session APIs (see `CopilotAdapter.ts`).
 
 ## Registry and routing
 

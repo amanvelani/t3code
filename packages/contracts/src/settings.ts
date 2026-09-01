@@ -518,8 +518,6 @@ export type GrokSettings = typeof GrokSettings.Type;
 
 export const CopilotSettings = makeProviderSettingsSchema(
   {
-    // Off by default (like Cursor and Grok): the ACP binding is in public
-    // preview upstream. Users opt in from Settings.
     enabled: Schema.Boolean.pipe(
       Schema.withDecodingDefault(Effect.succeed(false)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
@@ -527,8 +525,11 @@ export const CopilotSettings = makeProviderSettingsSchema(
     binaryPath: makeBinaryPathSetting("copilot").pipe(
       Schema.annotateKey({
         title: "Binary path",
-        description: "Path to the GitHub Copilot CLI binary.",
-        providerSettingsForm: { placeholder: "copilot", clearWhenEmpty: "omit" },
+        description: "Path to the GitHub Copilot CLI binary used by this instance.",
+        providerSettingsForm: {
+          placeholder: "copilot",
+          clearWhenEmpty: "omit",
+        },
       }),
     ),
     customModels: Schema.Array(Schema.String).pipe(
