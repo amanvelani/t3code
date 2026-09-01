@@ -451,6 +451,18 @@ ${this.output}`;
   }
 }
 
+export class PackagedServerVersionMismatchError extends Schema.TaggedErrorClass<PackagedServerVersionMismatchError>()(
+  "PackagedServerVersionMismatchError",
+  {
+    expectedVersion: Schema.String,
+    actualVersion: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `The packaged server reported t3 ${this.actualVersion}, but the desktop artifact was built for t3 ${this.expectedVersion}.`;
+  }
+}
+
 export class InlinedNativePackageError extends Schema.TaggedErrorClass<InlinedNativePackageError>()(
   "InlinedNativePackageError",
   { packages: Schema.Array(Schema.String) },
@@ -1466,6 +1478,8 @@ const runCommand = Effect.fn("runCommand")(function* (
       ...(stderr.trim() ? { stderrTail: stderr } : {}),
     });
   }
+
+  return { stdout, stderr } as const;
 });
 
 /**
@@ -1639,7 +1653,11 @@ export const copyDirectoryPreservingSymlinks = Effect.fn("copyDirectoryPreservin
 );
 
 const verifyPackagedBundleIsSelfContained = Effect.fn("verifyPackagedBundleIsSelfContained")(
-  function* (input: { readonly asarPath: string; readonly verbose: boolean }) {
+  function* (input: {
+    readonly asarPath: string;
+    readonly expectedVersion: string | undefined;
+    readonly verbose: boolean;
+  }) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
@@ -1687,7 +1705,7 @@ const verifyPackagedBundleIsSelfContained = Effect.fn("verifyPackagedBundleIsSel
     // by the WSL preflight probe at runtime, while ffi-rs, @ff-labs/fff-node
     // and the bun adapters are covered by the shared runtime-external closure
     // and emitted-bundle checks.
-    yield* runCommand(
+    const versionCheck = yield* runCommand(
       ChildProcess.make(
         process.execPath,
         // --no-global-search-paths because clearing NODE_PATH is not enough:
@@ -1731,6 +1749,15 @@ const verifyPackagedBundleIsSelfContained = Effect.fn("verifyPackagedBundleIsSel
         ),
       ),
     );
+    if (input.expectedVersion !== undefined) {
+      const actualVersion = versionCheck.stdout.trim().replace(/^t3 v/u, "");
+      if (actualVersion !== input.expectedVersion) {
+        return yield* new PackagedServerVersionMismatchError({
+          expectedVersion: input.expectedVersion,
+          actualVersion: actualVersion || "<empty>",
+        });
+      }
+    }
   },
 );
 
@@ -2670,6 +2697,7 @@ export const validateWindowsPackagedPayload = Effect.fn(
   readonly stageDistDir: string;
   readonly appExecutableName: string;
   readonly targetArch: typeof BuildArch.Type;
+  readonly expectedVersion?: string;
   readonly expectWslRuntime?: boolean;
   readonly fileLimit?: number;
   readonly verbose?: boolean;
@@ -2883,6 +2911,7 @@ export const validateWindowsPackagedPayload = Effect.fn(
 
   yield* verifyPackagedBundleIsSelfContained({
     asarPath,
+    expectedVersion: input.expectedVersion,
     verbose: input.verbose ?? false,
   });
 
@@ -2977,6 +3006,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       ChildProcess.make(spawnCommand.command, spawnCommand.args, {
         cwd: repoRoot,
         shell: spawnCommand.shell,
+        env: {
+          ...process.env,
+          T3CODE_BUILD_VERSION: appVersion,
+        },
       }),
       { label: "vp run build:desktop", verbose: options.verbose },
     );
@@ -3356,6 +3389,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       stageDistDir,
       appExecutableName: `${resolveDesktopProductName(appVersion)}.exe`,
       targetArch: options.arch,
+      expectedVersion: appVersion,
       expectWslRuntime: bundlesWslRuntime({
         arch: options.arch,
         prebuildPath: options.wslPrebuild,

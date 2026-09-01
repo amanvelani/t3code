@@ -33,7 +33,7 @@ import {
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
 import { expandHomePath } from "../../pathExpansion.ts";
-import packageJson from "../../../package.json" with { type: "json" };
+import { serverVersion } from "../../version.ts";
 const isCodexAppServerSpawnError = Schema.is(CodexErrors.CodexAppServerSpawnError);
 
 const CODEX_APP_SERVER_PROBE_FORCE_KILL_AFTER = "2 seconds" as const;
@@ -310,7 +310,7 @@ export function buildCodexInitializeParams(): CodexSchema.V1InitializeParams {
     clientInfo: {
       name: "t3code_desktop",
       title: "T3 Code Desktop",
-      version: packageJson.version,
+      version: serverVersion,
     },
     capabilities: {
       experimentalApi: true,

@@ -17,6 +17,7 @@ import {
 } from "../cloud/config.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "./ServerEnvironment.ts";
+import { resolveServerVersion } from "../version.ts";
 
 const isServerEnvironmentIdPersistenceError = Schema.is(
   ServerEnvironment.ServerEnvironmentIdPersistenceError,
@@ -66,6 +67,12 @@ const makeServerConfig = Effect.fn(function* (baseDir: string) {
     noBrowser: false,
     startupPresentation: "browser",
   } satisfies ServerConfig.ServerConfig["Service"];
+});
+
+it("uses the release build version before the package version", () => {
+  expect(resolveServerVersion(" 0.0.38 ", "0.0.37")).toBe("0.0.38");
+  expect(resolveServerVersion("", "0.0.37")).toBe("0.0.37");
+  expect(resolveServerVersion(undefined, "")).toBe("0.0.0");
 });
 
 it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
