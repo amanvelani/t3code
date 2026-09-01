@@ -177,11 +177,18 @@ export const make = Effect.gen(function* () {
       cli.getPullRequest({ cwd: input.cwd, number: input.number }).pipe(
         Effect.mapError(fail("getChangeRequestActivity")),
         Effect.flatMap((pullRequest) =>
-          (pullRequest.threadsUrl === null
-            ? Effect.succeed({ comments: [], truncated: true })
-            : cli.listThreads({ cwd: input.cwd, threadsUrl: pullRequest.threadsUrl }).pipe(
+          (pullRequest.threadsRoute === null
+            ? Effect.fail(
+                new PullRequestProviderError({
+                  provider: "azure-devops",
+                  operation: "getChangeRequestActivity",
+                  reason: "failed",
+                  detail: "Azure DevOps returned no route for this pull request's comments.",
+                }),
+              )
+            : cli.listThreads({ cwd: input.cwd, ...pullRequest.threadsRoute }).pipe(
+                Effect.mapError(fail("getChangeRequestActivity")),
                 Effect.map((comments) => ({ comments, truncated: false })),
-                Effect.orElseSucceed(() => ({ comments: [], truncated: true })),
               )
           ).pipe(
             Effect.map(

@@ -18,6 +18,7 @@ import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import { createPullRequestEnvironmentAtoms } from "./pullRequests.ts";
+import { PullRequestAvatarLoader } from "./pullRequestAvatarHttp.ts";
 import { PullRequestDiffLoader } from "./pullRequestDiffHttp.ts";
 import { executeAtomQuery } from "./runtime.ts";
 
@@ -97,8 +98,12 @@ it.effect("refreshes pull request activity after a comment is updated", () =>
           Stream.provideService(stream, EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
       } as EnvironmentRegistry.EnvironmentRegistry["Service"]);
       const runtime = Atom.runtime(
-        Layer.merge(
+        Layer.mergeAll(
           Layer.succeed(EnvironmentRegistry.EnvironmentRegistry, environmentRegistry),
+          Layer.succeed(
+            PullRequestAvatarLoader,
+            PullRequestAvatarLoader.of({ load: () => Effect.die("unused") }),
+          ),
           Layer.succeed(
             PullRequestDiffLoader,
             PullRequestDiffLoader.of({ load: () => Effect.die("unused") }),

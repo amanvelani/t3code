@@ -115,6 +115,7 @@ function PullRequestRowImpl({
           ) : null}
           <PullRequestActorLabel
             actor={entry.author}
+            environmentId={entry.environmentId}
             className="min-w-4 max-w-40"
             labelClassName="sr-only @xs/pr-row-meta:not-sr-only @xs/pr-row-meta:truncate"
           />

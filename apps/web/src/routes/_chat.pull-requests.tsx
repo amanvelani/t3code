@@ -1340,6 +1340,12 @@ function PullRequestsRouteView() {
         <PullRequestsUnavailableState error={listQuery.error} onRetry={() => listQuery.refresh()} />
       ) : carriedToNothing ? (
         <PullRequestListGhost rows={7} />
+      ) : entries.length === 0 && listErrors.length > 0 ? (
+        <PullRequestsUnavailableState
+          title="Pull requests could not be loaded"
+          error={listErrors.map((error) => error.message).join(" ")}
+          onRetry={() => listQuery.refresh()}
+        />
       ) : entries.length === 0 ? (
         <PullRequestListEmptyState
           hasProjects={!projectsKnown || projects.length > 0}

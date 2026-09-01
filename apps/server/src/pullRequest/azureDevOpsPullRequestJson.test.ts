@@ -20,12 +20,21 @@ function pullRequest(overrides: Record<string, unknown> = {}): Record<string, un
     status: "active",
     isDraft: false,
     mergeStatus: "succeeded",
-    createdBy: { displayName: "Bilal Hassan", uniqueName: "bilal@acme.dev" },
+    createdBy: {
+      id: "58f7d683-15d7-4e38-a261-2d167c134bda",
+      displayName: "Bilal Hassan",
+      uniqueName: "bilal@acme.dev",
+      imageUrl: "https://msazure.visualstudio.com/_api/_common/identityImage?id=protected",
+    },
     sourceRefName: "refs/heads/feat/page",
     targetRefName: "refs/heads/main",
     creationDate: "2026-07-01T00:00:00Z",
     url: REST_URL,
-    repository: { name: "web", project: { name: "platform" } },
+    repository: {
+      id: "6f9c9b7f-0000-0000-0000-000000000000",
+      name: "web",
+      project: { name: "platform" },
+    },
     ...overrides,
   };
 }
@@ -55,6 +64,10 @@ describe("decodePullRequestListJson", () => {
       isDraft: false,
       mergeability: "mergeable",
     });
+    expect(batch.items[0]?.author?.avatarUrl).toBe(
+      "/api/pull-requests/azure-avatars/dev.azure.com/acme/id/58f7d683-15d7-4e38-a261-2d167c134bda",
+    );
+    expect(batch.items[0]?.author?.avatarUrl).not.toContain("identityImage");
   });
 
   it("assembles a browser url when Azure reports no web link", () => {
@@ -159,12 +172,15 @@ describe("decodePullRequestJson", () => {
     );
   });
 
-  it("works out where the conversation lives from what Azure returned", () => {
+  it("retains structured values for the conversation route Azure returned", () => {
     const detail = expectSuccess(decodePullRequestJson(asJson(pullRequest())));
 
-    expect(detail?.threadsUrl).toBe(
-      "https://dev.azure.com/acme/platform/_apis/git/repositories/web/pullRequests/42/threads",
-    );
+    expect(detail?.threadsRoute).toEqual({
+      organization: "https://dev.azure.com/acme",
+      project: "platform",
+      repository: "6f9c9b7f-0000-0000-0000-000000000000",
+      pullRequestId: 42,
+    });
   });
 
   it("reports no conversation url when Azure said too little to build one", () => {
@@ -184,7 +200,7 @@ describe("decodePullRequestJson", () => {
       ),
     );
 
-    expect(detail?.threadsUrl).toBeNull();
+    expect(detail?.threadsRoute).toBeNull();
   });
 
   it("returns nothing when Azure gave no way to place the pull request at all", () => {

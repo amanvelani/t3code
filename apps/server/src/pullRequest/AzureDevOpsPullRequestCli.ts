@@ -111,6 +111,7 @@ export type AzureDevOpsPullRequestCliError =
 
 /** The version every REST call below is pinned to, so a new default cannot reshape a response. */
 const REST_API_VERSION = "7.1";
+export const AZURE_PR_LIST_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 
 export class AzureDevOpsPullRequestCli extends Context.Service<
   AzureDevOpsPullRequestCli,
@@ -146,10 +147,13 @@ export class AzureDevOpsPullRequestCli extends Context.Service<
       readonly number: number;
     }) => Effect.Effect<AzureDevOpsPullRequest, AzureDevOpsPullRequestCliError>;
 
-    /** Threads are not reachable through `az repos pr`, so they come from the REST API. */
+    /** Threads are not reachable through `az repos pr`, so they come through `az devops invoke`. */
     readonly listThreads: (input: {
       readonly cwd: string;
-      readonly threadsUrl: string;
+      readonly organization: string;
+      readonly project: string;
+      readonly repository: string;
+      readonly pullRequestId: number;
     }) => Effect.Effect<ReadonlyArray<PullRequestComment>, AzureDevOpsPullRequestCliError>;
 
     readonly runPullRequestAction: (input: {
@@ -258,10 +262,15 @@ export const make = Effect.gen(function* () {
   // how to read all of them.
   const detectArgs = ["--detect", "true"] as const;
 
-  const executeJson = (input: { readonly cwd: string; readonly args: ReadonlyArray<string> }) =>
+  const executeJson = (input: {
+    readonly cwd: string;
+    readonly args: ReadonlyArray<string>;
+    readonly maxOutputBytes?: number;
+  }) =>
     azure.execute({
       cwd: input.cwd,
       args: [...input.args, "--only-show-errors", "--output", "json"],
+      ...(input.maxOutputBytes === undefined ? {} : { maxOutputBytes: input.maxOutputBytes }),
     });
 
   /**
@@ -290,6 +299,7 @@ export const make = Effect.gen(function* () {
     const top = remaining + 1;
     return executeJson({
       cwd: input.cwd,
+      maxOutputBytes: AZURE_PR_LIST_MAX_OUTPUT_BYTES,
       args: [
         "repos",
         "pr",
@@ -433,15 +443,24 @@ export const make = Effect.gen(function* () {
       executeJson({
         cwd: input.cwd,
         args: [
-          "rest",
-          "--method",
-          "get",
-          "--url",
-          `${input.threadsUrl}?api-version=${REST_API_VERSION}`,
+          "devops",
+          "invoke",
+          "--area",
+          "git",
+          "--resource",
+          "pullRequestThreads",
+          "--route-parameters",
+          `project=${input.project}`,
+          `repositoryId=${input.repository}`,
+          `pullRequestId=${input.pullRequestId}`,
+          "--organization",
+          input.organization,
+          "--api-version",
+          REST_API_VERSION,
         ],
       }).pipe(
         Effect.flatMap((result) => {
-          const decoded = decodeThreadsJson(result.stdout.trim());
+          const decoded = decodeThreadsJson(result.stdout.trim(), input.organization);
           return Result.isSuccess(decoded)
             ? Effect.succeed(decoded.success)
             : Effect.fail(

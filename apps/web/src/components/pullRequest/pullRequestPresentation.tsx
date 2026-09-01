@@ -1,4 +1,5 @@
 import type {
+  EnvironmentId,
   PullRequestActor,
   PullRequestCheck,
   PullRequestCheckStatus,
@@ -18,9 +19,11 @@ import {
   LoaderIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { Children, isValidElement, type ReactNode } from "react";
+import { Children, isValidElement, type ReactNode, useEffect, useState } from "react";
 
 import { cn } from "~/lib/utils";
+import { pullRequestEnvironment } from "~/state/pullRequests";
+import { useEnvironmentQuery } from "~/state/query";
 
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -306,15 +309,41 @@ export function PullRequestReviewOutcomeBadge({
 
 export function PullRequestActorAvatar({
   actor,
+  environmentId,
   className,
 }: {
   actor: PullRequestActor | null;
-  className?: string;
+  environmentId?: EnvironmentId;
+  className?: string | undefined;
 }) {
   const login = actor?.login ?? "ghost";
   const avatarUrl = actor?.avatarUrl ?? null;
-  return avatarUrl === null ? (
-    // Not every host reports an avatar, so the initial stands in where none arrives.
+  if (avatarUrl === null) {
+    return <PullRequestActorInitial login={login} className={className} />;
+  }
+  if (avatarUrl.startsWith("/api/pull-requests/azure-avatars/")) {
+    return environmentId === undefined ? (
+      <PullRequestActorInitial login={login} className={className} />
+    ) : (
+      <AuthenticatedPullRequestActorAvatar
+        avatarPath={avatarUrl}
+        environmentId={environmentId}
+        login={login}
+        className={className}
+      />
+    );
+  }
+  return <PullRequestActorImage avatarUrl={avatarUrl} login={login} className={className} />;
+}
+
+function PullRequestActorInitial({
+  login,
+  className,
+}: {
+  login: string;
+  className?: string | undefined;
+}) {
+  return (
     <span
       aria-hidden
       className={cn(
@@ -324,33 +353,87 @@ export function PullRequestActorAvatar({
     >
       {login.slice(0, 1).toUpperCase()}
     </span>
+  );
+}
+
+function PullRequestActorImage({
+  avatarUrl,
+  login,
+  className,
+}: {
+  avatarUrl: string;
+  login: string;
+  className?: string | undefined;
+}) {
+  const [failed, setFailed] = useState(false);
+  return failed ? (
+    <PullRequestActorInitial login={login} className={className} />
   ) : (
     <img
       aria-hidden
       alt=""
       src={avatarUrl}
       loading="lazy"
+      onError={() => setFailed(true)}
       className={cn("size-4 shrink-0 rounded-full bg-muted object-cover", className)}
     />
+  );
+}
+
+function AuthenticatedPullRequestActorAvatar({
+  avatarPath,
+  environmentId,
+  login,
+  className,
+}: {
+  avatarPath: string;
+  environmentId: EnvironmentId;
+  login: string;
+  className?: string | undefined;
+}) {
+  const query = useEnvironmentQuery(
+    pullRequestEnvironment.avatar({ environmentId, input: avatarPath }),
+  );
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (query.data === null) {
+      setObjectUrl(null);
+      return;
+    }
+    const next = URL.createObjectURL(
+      new Blob([Uint8Array.from(query.data).buffer], { type: "image/png" }),
+    );
+    setObjectUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [query.data]);
+  return objectUrl === null ? (
+    <PullRequestActorInitial login={login} className={className} />
+  ) : (
+    <PullRequestActorImage avatarUrl={objectUrl} login={login} className={className} />
   );
 }
 
 /** GitHub attributes work from a deleted account to "ghost"; say the same word everywhere. */
 export function PullRequestActorLabel({
   actor,
+  environmentId,
   className,
   labelClassName,
   tooltip = true,
 }: {
   actor: PullRequestActor | null;
-  className?: string;
+  environmentId?: EnvironmentId;
+  className?: string | undefined;
   labelClassName?: string;
   tooltip?: boolean;
 }) {
   const login = actor?.login ?? "ghost";
   const label = (
     <>
-      <PullRequestActorAvatar actor={actor} />
+      <PullRequestActorAvatar
+        actor={actor}
+        {...(environmentId === undefined ? {} : { environmentId })}
+      />
       <span className={cn("truncate", labelClassName)}>{login}</span>
     </>
   );

@@ -77,9 +77,18 @@ function encodeAzureDevOpsPathSegment(segment: string): string {
  * REST call have to be hung. Exported because the pull requests page derives its own urls from
  * whatever Azure returned rather than from the local remote, whose shape varies.
  */
-export function azureDevOpsOrganizationBaseFromRestApiUrl(
+export interface AzureDevOpsOrganization {
+  readonly name: string;
+  readonly route: "dev.azure.com" | "visualstudio.com";
+  readonly url: string;
+}
+
+const AZURE_DEVOPS_ORGANIZATION_NAME = /^[a-z0-9](?:[a-z0-9-]{0,198}[a-z0-9])?$/i;
+
+/** A cloud Azure DevOps organization, rejecting every other scheme and host. */
+export function azureDevOpsOrganizationFromRestApiUrl(
   value: string | null | undefined,
-): string | null {
+): AzureDevOpsOrganization | null {
   const rawUrl = trimOptionalString(value);
   if (!rawUrl) {
     return null;
@@ -87,6 +96,7 @@ export function azureDevOpsOrganizationBaseFromRestApiUrl(
 
   try {
     const url = new URL(rawUrl);
+    if (url.protocol !== "https:") return null;
     const hostname = url.hostname.toLowerCase();
     const pathSegments = url.pathname.split("/").filter((segment) => segment.length > 0);
     const isAzureRestUrl = pathSegments.some((segment) => segment.toLowerCase() === "_apis");
@@ -96,17 +106,36 @@ export function azureDevOpsOrganizationBaseFromRestApiUrl(
 
     if (hostname === "dev.azure.com") {
       const organization = pathSegments[0];
-      return organization ? `${url.origin}/${organization}` : null;
+      return organization && AZURE_DEVOPS_ORGANIZATION_NAME.test(organization)
+        ? {
+            name: organization,
+            route: "dev.azure.com",
+            url: `https://dev.azure.com/${organization}`,
+          }
+        : null;
     }
 
     if (hostname.endsWith(".visualstudio.com")) {
-      return url.origin;
+      const organization = hostname.slice(0, -".visualstudio.com".length);
+      return AZURE_DEVOPS_ORGANIZATION_NAME.test(organization)
+        ? {
+            name: organization,
+            route: "visualstudio.com",
+            url: `https://${organization}.visualstudio.com`,
+          }
+        : null;
     }
 
     return null;
   } catch {
     return null;
   }
+}
+
+export function azureDevOpsOrganizationBaseFromRestApiUrl(
+  value: string | null | undefined,
+): string | null {
+  return azureDevOpsOrganizationFromRestApiUrl(value)?.url ?? null;
 }
 
 /**

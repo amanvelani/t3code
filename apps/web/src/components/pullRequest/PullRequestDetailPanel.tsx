@@ -1530,7 +1530,10 @@ export function PullRequestDetailPanel({
                           />
                         }
                       >
-                        <PullRequestActorAvatar actor={detail.author} />
+                        <PullRequestActorAvatar
+                          actor={detail.author}
+                          environmentId={environmentId}
+                        />
                       </TooltipTrigger>
                       <TooltipPopup side="top">{detail.author?.login ?? "ghost"}</TooltipPopup>
                     </Tooltip>
@@ -1685,7 +1688,11 @@ export function PullRequestDetailPanel({
                   </div>
                 )}
                 <PullRequestMetaLine className="mt-2 text-xs text-muted-foreground">
-                  <PullRequestActorLabel actor={detail.author} className="font-medium" />
+                  <PullRequestActorLabel
+                    actor={detail.author}
+                    environmentId={environmentId}
+                    className="font-medium"
+                  />
                   <span>updated {formatRelativeTimeLabel(detail.updatedAt)}</span>
                 </PullRequestMetaLine>
 

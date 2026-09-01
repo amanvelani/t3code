@@ -116,11 +116,13 @@ function IconMarker({ icon, className }: { icon: ReactNode; className?: string |
 
 function ActorTimelineMarker({
   actors,
+  environmentId,
   className,
   fallback,
   muted = false,
 }: {
   actors: ReadonlyArray<PullRequestActor>;
+  environmentId: EnvironmentId;
   className?: string | undefined;
   fallback: ReactNode;
   muted?: boolean;
@@ -132,6 +134,7 @@ function ActorTimelineMarker({
     <TimelineMarker className={className}>
       <PullRequestActorAvatar
         actor={actor}
+        environmentId={environmentId}
         className={cn(
           "size-7 bg-muted text-[9px] transition-opacity",
           muted && "opacity-45 grayscale",
@@ -309,6 +312,7 @@ function ConversationGroup({
     <div className="relative mb-5 pl-12 [contain-intrinsic-block-size:48px] [content-visibility:auto]">
       <ActorTimelineMarker
         actors={actors}
+        environmentId={reactions.environmentId}
         className="top-6"
         fallback={<MessageSquareIcon className="size-3.5" />}
         muted={!open}
@@ -365,9 +369,11 @@ function ConversationGroup({
 
 function CommitEvent({
   event,
+  environmentId,
   onOpen,
 }: {
   event: PullRequestTimelineEvent;
+  environmentId: EnvironmentId;
   onOpen: (oid: string) => void;
 }) {
   return (
@@ -379,6 +385,7 @@ function CommitEvent({
     >
       <ActorTimelineMarker
         actors={event.commitAuthors}
+        environmentId={environmentId}
         fallback={<GitCommitHorizontalIcon className="size-3.5" />}
       />
       <div className="flex min-w-0 items-center gap-2.5 py-1.5">
@@ -463,6 +470,7 @@ function ReviewVerdictEvent({
           centred avatar drifts down beside them instead of sitting by the name. */}
       <ActorTimelineMarker
         actors={event.actor ? [event.actor] : []}
+        environmentId={reactions.environmentId}
         className="top-6"
         fallback={<PullRequestReviewOutcomeIcon outcome={outcome} />}
       />
@@ -591,7 +599,14 @@ export function PullRequestTimelineTab({
             }
             const event = row.event;
             if (event.kind === "commit") {
-              return <CommitEvent key={event.id} event={event} onOpen={onOpenCommit} />;
+              return (
+                <CommitEvent
+                  key={event.id}
+                  event={event}
+                  environmentId={environmentId}
+                  onOpen={onOpenCommit}
+                />
+              );
             }
             const outcome = pullRequestReviewOutcome(event.reviewState);
             if (outcome !== null) {
