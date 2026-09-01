@@ -362,6 +362,7 @@ flowchart LR
 
   DB["PlanetScale Postgres<br/>prod database + stage branches"]
   APNs["Apple Push Notification service"]
+  Traces["Axiom OTLP traces"]
 
   subgraph Local["Linked T3 environment"]
     Env["Environment server<br/>local auth authority"]
@@ -378,6 +379,7 @@ flowchart LR
   Mobile --> Clerk
   CLI -->|"PKCE authorization code flow"| Clerk
   Worker --> Hyperdrive --> DB
+  Worker --> Traces
   Worker --> CF
   Worker --> Queue --> APNs
   Worker --> Endpoint
@@ -1018,6 +1020,7 @@ sequenceDiagram
             <li>Cloudflare tunnel and DNS bindings for managed endpoint reconciliation.</li>
             <li>Cloudflare APNs delivery queue plus dead-letter queue.</li>
             <li>A five-minute cron job that prunes expired DPoP replay rows.</li>
+            <li>Axiom OTLP trace dataset, scoped ingest token, and recent-spans view per stage.</li>
           </ul>
         </article>
       </section>

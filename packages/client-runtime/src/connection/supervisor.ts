@@ -1,3 +1,4 @@
+import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -334,7 +335,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
             "connection.retry.reason": retry.reason,
           }),
         ),
-    });
+    }).pipe(withRelayClientTracing);
   };
 
   const establishTracedConnection = Effect.fnUntraced(function* (

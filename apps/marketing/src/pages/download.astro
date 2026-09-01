@@ -8,8 +8,8 @@ import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "../lib/site";
   <div class="download-page">
   <h1 class="heading">Download T3 Code</h1>
   <p class="subheading">
-    <span id="version-label">Choose a platform from the GitHub releases page.</span>
-    <a id="changelog-link" class="changelog-link" href={RELEASES_URL} target="_blank" rel="noopener noreferrer">View releases<span aria-hidden="true"> &#8599;</span></a>
+    <span id="version-label">Loading latest release&hellip;</span>
+    <a id="changelog-link" class="changelog-link" href="#" target="_blank" rel="noopener noreferrer" style="display:none">View changelog<span aria-hidden="true"> &#8599;</span></a>
   </p>
 
   <div class="platforms" id="platforms">
@@ -20,13 +20,13 @@ import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "../lib/site";
         <h2 class="platform-name">macOS</h2>
       </div>
       <div class="download-cards">
-        <a class="download-card" href={RELEASES_URL}>
+        <a class="download-card" data-asset="arm64.dmg" href={RELEASES_URL}>
           <span class="card-arch">Apple Silicon (arm64)</span>
           <span class="card-format">.dmg</span>
         </a>
       </div>
       <p class="intel-note">
-        On an Intel Mac? <a href={RELEASES_URL}>Choose the x64 build on GitHub</a>.
+        On an Intel Mac? <a data-asset="x64.dmg" href={RELEASES_URL}>Download the x64 build</a>.
       </p>
     </section>
 
@@ -37,7 +37,7 @@ import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "../lib/site";
         <h2 class="platform-name">Windows</h2>
       </div>
       <div class="download-cards">
-        <a class="download-card" href={RELEASES_URL}>
+        <a class="download-card" data-asset="x64.exe" href={RELEASES_URL}>
           <span class="card-arch">Windows 10, 11</span>
           <span class="card-format">.exe</span>
         </a>
@@ -51,7 +51,7 @@ import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "../lib/site";
         <h2 class="platform-name">Linux</h2>
       </div>
       <div class="download-cards">
-        <a class="download-card" href={RELEASES_URL}>
+        <a class="download-card" data-asset="x86_64.AppImage" href={RELEASES_URL}>
           <span class="card-arch">x86_64</span>
           <span class="card-format">AppImage</span>
         </a>
@@ -85,6 +85,51 @@ import { ANDROID_PLAY_STORE_URL, IOS_APP_STORE_URL } from "../lib/site";
   </p>
   </div>
 </Layout>
+
+<script>
+  import { fetchLatestRelease, RELEASES_URL } from "../lib/releases";
+
+  async function init() {
+    const versionLabel = document.getElementById("version-label");
+    // Only release-asset links; mobile store cards have no data-asset and keep their href.
+    const cards = document.querySelectorAll<HTMLAnchorElement>("a[data-asset]");
+
+    try {
+      const release = await fetchLatestRelease();
+
+      if (versionLabel && release.tag_name) {
+        versionLabel.textContent = `Latest (${release.tag_name})`;
+      }
+
+      const changelogLink = document.getElementById("changelog-link") as HTMLAnchorElement | null;
+      if (changelogLink && release.html_url) {
+        changelogLink.href = release.html_url;
+        changelogLink.style.display = "";
+      }
+
+      cards.forEach((card) => {
+        const suffix = card.dataset.asset;
+        if (!suffix) return;
+
+        const match = (release.assets ?? []).find((a) => a.name.endsWith(`-${suffix}`));
+        if (match) {
+          card.href = match.browser_download_url;
+        } else {
+          card.href = RELEASES_URL;
+        }
+      });
+    } catch {
+      if (versionLabel) {
+        versionLabel.textContent = "Could not load release info.";
+      }
+      cards.forEach((card) => {
+        card.href = RELEASES_URL;
+      });
+    }
+  }
+
+  init();
+</script>
 
 <style>
   .download-page {

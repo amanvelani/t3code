@@ -60,10 +60,11 @@ const baseConfig: DesktopBackendManager.DesktopBackendStartConfig = {
   preflightFailure: Option.none(),
 };
 
-const configWithAdditionalBootstrapFields: DesktopBackendBootstrapValue = {
+const configWithObservability: DesktopBackendBootstrapValue = {
   ...baseConfig.bootstrap,
   tailscaleServeEnabled: true,
   desktopTelemetryFd: 4,
+  otlpTracesUrl: "http://127.0.0.1:4318/v1/traces",
 };
 
 function makeProcess(options?: {
@@ -222,7 +223,7 @@ describe("DesktopBackendManager", () => {
         const instance = yield* makeTestInstance({
           config: {
             ...baseConfig,
-            bootstrap: configWithAdditionalBootstrapFields,
+            bootstrap: configWithObservability,
           },
           spawnerLayer,
           desktopTelemetryStream: Stream.encodeText(
@@ -260,10 +261,7 @@ describe("DesktopBackendManager", () => {
           2_000,
         );
 
-        assert.deepEqual(
-          yield* decodeBootstrap(bootstrapJson),
-          configWithAdditionalBootstrapFields,
-        );
+        assert.deepEqual(yield* decodeBootstrap(bootstrapJson), configWithObservability);
         assert.equal(
           telemetryJson,
           '{"version":1,"type":"desktopTelemetryHello","electronPid":123}\n',

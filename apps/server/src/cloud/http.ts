@@ -30,6 +30,7 @@ import {
   RelayManagedEndpointOrigin,
   RelayOkResponse,
 } from "@t3tools/contracts/relay";
+import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import {
   normalizeRelayIssuer,
   RELAY_HEALTH_REQUEST_TYP,
@@ -83,6 +84,7 @@ import {
 } from "./CliState.ts";
 import * as CliTokenManager from "./CliTokenManager.ts";
 import { getOrCreateEnvironmentKeyPairFromSecretStore } from "./environmentKeys.ts";
+import { traceRelayRequest } from "./traceRelayRequest.ts";
 
 const CLOUD_MINT_NONCE_PREFIX = "cloud-mint-nonce-";
 const CLOUD_MINT_JTI_PREFIX = "cloud-mint-jti-";
@@ -532,6 +534,7 @@ const relayClientRequest = <A>(
           message: `T3 Connect relay request failed: ${String(cause)}`,
         }),
     ),
+    withRelayClientTracing,
   );
 
 const reconcileDesiredCloudLinkWith = Effect.fn("environment.cloud.reconcileDesiredLinkWith")(
@@ -719,6 +722,7 @@ export const releaseManagedTunnelOnShutdown = Effect.fn(
     dependencies.httpClient.execute,
     Effect.flatMap(HttpClientResponse.filterStatusOk),
     Effect.flatMap(HttpClientResponse.schemaBodyJson(RelayOkResponse)),
+    withRelayClientTracing,
   );
   // ok:false means the relay skipped deletion because a concurrent provision
   // owns the recorded tunnel now — leave the stored config alone.
@@ -1077,7 +1081,7 @@ export const connectHttpApiLayer = HttpApiBuilder.group(
       .handle("health", ({ payload }) => cloudEnvironmentHealthHandler(dependencies, payload))
       .handle("mintCredential", ({ payload }) => cloudMintCredentialHandler(dependencies, payload))
       .handle("t3MintCredential", ({ payload }) =>
-        cloudMintCredentialHandler(dependencies, payload),
+        traceRelayRequest(cloudMintCredentialHandler(dependencies, payload)),
       );
   }),
 );

@@ -7,6 +7,7 @@ import * as TestClock from "effect/testing/TestClock";
 
 import { EnvironmentAuthInvalidError } from "@t3tools/contracts";
 import {
+  appendClientConnectionParams,
   bootstrapRemoteBearerSession,
   exchangeRemoteDpopAccessToken,
   fetchRemoteDpopSessionState,
@@ -146,6 +147,11 @@ describe("remote environment authorization", () => {
         httpBaseUrl: "https://remote.example.com/",
         credential: "one-time-credential",
         dpopProof: "token-proof",
+        clientMetadata: {
+          label: "T3 Code Mobile",
+          deviceType: "mobile",
+          os: "iOS",
+        },
       }).pipe(provideRemoteHttp(fetch.fetchFn));
       yield* issueRemoteDpopWebSocketTicket({
         httpBaseUrl: "https://remote.example.com/",
@@ -157,7 +163,7 @@ describe("remote environment authorization", () => {
         url: "https://remote.example.com/oauth/token",
         method: "POST",
         headers: { dpop: "token-proof", "content-type": "application/x-www-form-urlencoded" },
-        body: "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange&subject_token=one-time-credential&subject_token_type=urn%3At3%3Aparams%3Aoauth%3Atoken-type%3Aenvironment-bootstrap&requested_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aaccess_token",
+        body: "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange&subject_token=one-time-credential&subject_token_type=urn%3At3%3Aparams%3Aoauth%3Atoken-type%3Aenvironment-bootstrap&requested_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aaccess_token&client_label=T3+Code+Mobile&client_device_type=mobile&client_os=iOS",
       });
       expectFetchCall(fetch.calls, 2, {
         url: "https://remote.example.com/api/auth/websocket-ticket",
@@ -170,7 +176,7 @@ describe("remote environment authorization", () => {
     }),
   );
 
-  it.effect("does not submit client display metadata during bearer token exchange", () =>
+  it.effect("submits optional client display metadata during bearer token exchange", () =>
     Effect.gen(function* () {
       const fetch = recordedFetch(
         Response.json(
@@ -189,17 +195,22 @@ describe("remote environment authorization", () => {
       yield* bootstrapRemoteBearerSession({
         httpBaseUrl: "https://remote.example.com/",
         credential: "pairing-token",
+        clientMetadata: {
+          label: "T3 Code Mobile",
+          deviceType: "mobile",
+          os: "iOS",
+        },
       }).pipe(provideRemoteHttp(fetch.fetchFn));
 
       expectFetchCall(fetch.calls, 1, {
         url: "https://remote.example.com/oauth/token",
         method: "POST",
-        body: "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange&subject_token=pairing-token&subject_token_type=urn%3At3%3Aparams%3Aoauth%3Atoken-type%3Aenvironment-bootstrap&requested_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aaccess_token",
+        body: "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange&subject_token=pairing-token&subject_token_type=urn%3At3%3Aparams%3Aoauth%3Atoken-type%3Aenvironment-bootstrap&requested_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aaccess_token&client_label=T3+Code+Mobile&client_device_type=mobile&client_os=iOS",
       });
     }),
   );
 
-  it.effect("keeps authorization requests free of client metadata", () =>
+  it.effect("keeps OS sentinels in telemetry but out of display metadata", () =>
     Effect.gen(function* () {
       const tokenResponse = () =>
         Response.json(
@@ -214,18 +225,29 @@ describe("remote environment authorization", () => {
         );
       const fetch = recordedFetch(tokenResponse(), tokenResponse());
 
-      for (const _ of [0, 1]) {
+      for (const os of ["unknown", "other"] as const) {
         yield* bootstrapRemoteBearerSession({
           httpBaseUrl: "https://remote.example.com/",
           credential: "pairing-token",
+          clientMetadata: {
+            label: "T3 Code Web",
+            deviceType: "desktop",
+            os,
+          },
         }).pipe(provideRemoteHttp(fetch.fetchFn));
       }
 
       for (const [, init] of fetch.calls) {
-        expect(String(init.body)).not.toMatch(/client_(?:label|device_type|os)=/);
+        expect(String(init.body)).not.toContain("client_os=");
       }
 
-      expect(fetch.calls.every(([, init]) => !String(init.body).includes("client_"))).toBe(true);
+      const websocketUrl = new URL("wss://remote.example.com/ws");
+      appendClientConnectionParams(websocketUrl, {
+        surface: "web",
+        deviceType: "desktop",
+        os: "unknown",
+      });
+      expect(websocketUrl.searchParams.get("clientOs")).toBe("unknown");
     }),
   );
 
@@ -487,9 +509,20 @@ describe("remote environment authorization", () => {
         wsBaseUrl: "wss://remote.example.com/",
         httpBaseUrl: "https://remote.example.com/",
         bearerToken: "bearer-token",
+        clientMetadata: {
+          surface: "mobile",
+          appVersion: "1.2.3",
+          deviceType: "mobile",
+          os: "Android",
+          osMajorVersion: 15,
+          deviceModel: "Pixel 9",
+        },
+        connectionMethod: "relay",
       }).pipe(provideRemoteHttp(fetch.fetchFn));
 
-      expect(url).toBe("wss://remote.example.com/ws?wsTicket=ws-ticket");
+      expect(url).toBe(
+        "wss://remote.example.com/ws?wsTicket=ws-ticket&clientSurface=mobile&clientAppVersion=1.2.3&clientDeviceType=phone&clientOs=Android&clientOsMajorVersion=15&clientDeviceModel=Pixel+9&connectionMethod=relay",
+      );
     }),
   );
 });

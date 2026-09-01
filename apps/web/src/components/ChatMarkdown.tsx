@@ -1104,13 +1104,31 @@ function normalizeMarkdownLinkHrefKey(href: string): string {
 
 const MARKDOWN_LINK_FAVICON_CLASS_NAME = "block size-full shrink-0 select-none";
 
-const MarkdownLinkFavicon = memo(function MarkdownLinkFavicon() {
+/** Hosts whose favicon request already failed this session — skip straight to the globe. */
+const failedFaviconHosts = new Set<string>();
+
+const MarkdownLinkFavicon = memo(function MarkdownLinkFavicon({ host }: { host: string }) {
+  const [failedHost, setFailedHost] = useState<string | null>(null);
   return (
     <span
       className="ms-[0.25em] me-[0.2em] inline-flex size-[14px] [vertical-align:-0.125em]"
       aria-hidden
     >
-      <GlobeIcon className={MARKDOWN_LINK_FAVICON_CLASS_NAME} />
+      {failedHost === host || failedFaviconHosts.has(host) ? (
+        <GlobeIcon className={MARKDOWN_LINK_FAVICON_CLASS_NAME} />
+      ) : (
+        <img
+          src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`}
+          alt=""
+          loading="lazy"
+          draggable={false}
+          className={cn(MARKDOWN_LINK_FAVICON_CLASS_NAME, "rounded-sm")}
+          onError={() => {
+            failedFaviconHosts.add(host);
+            setFailedHost(host);
+          }}
+        />
+      )}
     </span>
   );
 });
@@ -1379,7 +1397,7 @@ function MarkdownExternalLinkContent({
     return (
       <>
         <span className="whitespace-nowrap">
-          <MarkdownLinkFavicon />
+          <MarkdownLinkFavicon host={host} />
           {plainText.slice(0, leadingLength)}
         </span>
         {breakableExternalLinkText(plainText.slice(leadingLength))}
@@ -1395,7 +1413,7 @@ function MarkdownExternalLinkContent({
     return (
       <>
         <span className="whitespace-nowrap">
-          <MarkdownLinkFavicon />
+          <MarkdownLinkFavicon host={host} />
           {firstChild.slice(0, leadingLength)}
         </span>
         {breakableExternalLinkText(firstChild.slice(leadingLength))}
@@ -1407,7 +1425,7 @@ function MarkdownExternalLinkContent({
   return (
     <>
       <span className="whitespace-nowrap">
-        <MarkdownLinkFavicon />
+        <MarkdownLinkFavicon host={host} />
         {firstChild}
       </span>
       {childNodes.slice(1)}

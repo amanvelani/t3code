@@ -66,6 +66,14 @@ describe("ClientSettings word wrap", () => {
   });
 });
 
+describe("ServerSettings telemetry", () => {
+  it("defaults telemetry off and accepts explicit opt-in patches", () => {
+    expect(DEFAULT_SERVER_SETTINGS.enableTelemetry).toBe(false);
+    expect(decodeServerSettings({}).enableTelemetry).toBe(false);
+    expect(decodeServerSettingsPatch({ enableTelemetry: true }).enableTelemetry).toBe(true);
+  });
+});
+
 describe("ClientSettings browser recording frame rate", () => {
   it("defaults to 30 fps", () => {
     expect(decodeClientSettings({}).browserRecordingFrameRate).toBe(30);
@@ -381,6 +389,9 @@ describe("ServerSettingsPatch string normalization", () => {
     const patch = decodeServerSettingsPatch({
       addProjectBaseDirectory: "  ~/Development  ",
       textGenerationModelSelection: { model: "  gpt-5.4-mini  " },
+      observability: {
+        otlpTracesUrl: "  http://localhost:4318/v1/traces  ",
+      },
       providers: {
         codex: {
           binaryPath: "  /opt/homebrew/bin/codex  ",
@@ -399,6 +410,7 @@ describe("ServerSettingsPatch string normalization", () => {
 
     expect(patch.addProjectBaseDirectory).toBe("~/Development");
     expect(patch.textGenerationModelSelection?.model).toBe("gpt-5.4-mini");
+    expect(patch.observability?.otlpTracesUrl).toBe("http://localhost:4318/v1/traces");
     expect(patch.providers?.codex?.binaryPath).toBe("/opt/homebrew/bin/codex");
     expect(patch.providers?.codex?.homePath).toBe("~/.codex");
     expect(patch.providers?.codex?.launchArgs).toBe("--strict-config --enable foo");

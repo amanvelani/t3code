@@ -181,6 +181,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["command menu dollar $ slash /"],
   },
   {
+    id: "telemetry",
+    title: "Share usage data",
+    to: "/settings/general",
+    searchTerms: ["telemetry analytics privacy posthog diagnostics"],
+  },
+  {
     id: "provider-update-checks",
     title: "Provider update checks",
     to: "/settings/general",

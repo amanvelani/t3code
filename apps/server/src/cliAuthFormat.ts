@@ -13,6 +13,9 @@ function formatClientMetadata(metadata: AuthClientMetadata): string {
   const details = serializeOptionalFields([
     metadata.label,
     metadata.deviceType !== "unknown" ? metadata.deviceType : undefined,
+    metadata.os,
+    metadata.browser,
+    metadata.ipAddress,
   ]);
   return details.length > 0 ? details.join(" | ") : "unlabeled client";
 }

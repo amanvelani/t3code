@@ -1,4 +1,5 @@
 import {
+  ClientPresentation,
   CloudSession,
   EnvironmentOwnedDataCleanup,
   PlatformConnectionSource,
@@ -41,6 +42,7 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { FetchHttpClient } from "effect/unstable/http";
 
+import { APP_VERSION } from "../branding";
 import { readDesktopPrimaryBearerToken } from "../environments/primary/desktopAuth";
 import { primaryEnvironmentHttpLayer } from "../environments/primary/httpLayer";
 import {
@@ -57,6 +59,7 @@ import {
   type DesktopSecondaryBootstrapsRead,
 } from "./desktopLocal";
 import { connectionStorageLayer } from "./storage";
+import { clientPresentationMetadata } from "./clientMetadata";
 
 let nextObservedRpcRequestId = 0;
 
@@ -112,6 +115,19 @@ const wakeupsLayer = Wakeups.layer({
   ),
 });
 
+function clientMetadata() {
+  return clientPresentationMetadata({
+    appVersion: APP_VERSION,
+    hosted: isHostedStaticApp(),
+    identity: {
+      userAgent: navigator.userAgent,
+      platform: navigator.platform,
+      maxTouchPoints: navigator.maxTouchPoints,
+    },
+    desktopBridge: window.desktopBridge,
+  });
+}
+
 function sshPreparationError(cause: unknown) {
   const message = cause instanceof Error ? cause.message : String(cause);
   if (message.toLowerCase().includes("cancel")) {
@@ -161,6 +177,10 @@ export const provisionDesktopSshEnvironment = Effect.fn(
 
 const capabilitiesLayer = Layer.effectContext(
   Effect.sync(() => {
+    const presentation = ClientPresentation.of({
+      metadata: clientMetadata(),
+      scopes: AuthStandardClientScopes,
+    });
     const cloudSession = CloudSession.of({
       clerkToken: Effect.gen(function* () {
         const session = appAtomRegistry.get(managedRelaySessionAtom);
@@ -262,6 +282,7 @@ const capabilitiesLayer = Layer.effectContext(
     return Context.make(CloudSession, cloudSession).pipe(
       Context.add(PrimaryEnvironmentAuth, primaryAuth),
       Context.add(RelayDeviceIdentity, identity),
+      Context.add(ClientPresentation, presentation),
       Context.add(SshEnvironmentGateway, ssh),
     );
   }),
@@ -309,6 +330,7 @@ const loadSecondaryConnectionRegistration = Effect.fn(
     httpBaseUrl,
     credential: entry.bootstrapToken,
     scopes: AuthStandardClientScopes,
+    clientMetadata: clientMetadata(),
   }).pipe(Effect.mapError(mapRemoteEnvironmentError));
   // Keep the desktop pool's stable backend id in the connection id. The
   // descriptor environment id still scopes projects and RPC state, while the

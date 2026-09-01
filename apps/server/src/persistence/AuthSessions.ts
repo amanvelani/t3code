@@ -10,6 +10,7 @@ import {
   AuthClientMetadataDeviceType,
   AuthEnvironmentScopes,
   AuthSessionId,
+  ClientSurface,
   ServerAuthSessionMethod,
 } from "@t3tools/contracts";
 
@@ -22,7 +23,11 @@ import {
 
 export const AuthSessionClientMetadataRecord = Schema.Struct({
   label: Schema.NullOr(Schema.String),
+  ipAddress: Schema.NullOr(Schema.String),
+  userAgent: Schema.NullOr(Schema.String),
   deviceType: AuthClientMetadataDeviceType,
+  os: Schema.NullOr(Schema.String),
+  browser: Schema.NullOr(Schema.String),
 });
 export type AuthSessionClientMetadataRecord = typeof AuthSessionClientMetadataRecord.Type;
 
@@ -78,6 +83,13 @@ export const SetAuthSessionLastConnectedAtInput = Schema.Struct({
 });
 export type SetAuthSessionLastConnectedAtInput = typeof SetAuthSessionLastConnectedAtInput.Type;
 
+export const SetAuthSessionClientConnectionInput = Schema.Struct({
+  sessionId: AuthSessionId,
+  surface: Schema.NullOr(ClientSurface),
+  appVersion: Schema.NullOr(Schema.String),
+});
+export type SetAuthSessionClientConnectionInput = typeof SetAuthSessionClientConnectionInput.Type;
+
 export class AuthSessionRepository extends Context.Service<
   AuthSessionRepository,
   {
@@ -99,6 +111,9 @@ export class AuthSessionRepository extends Context.Service<
     readonly setLastConnectedAt: (
       input: SetAuthSessionLastConnectedAtInput,
     ) => Effect.Effect<void, AuthSessionRepositoryError>;
+    readonly setClientConnection: (
+      input: SetAuthSessionClientConnectionInput,
+    ) => Effect.Effect<void, AuthSessionRepositoryError>;
   }
 >()("t3/persistence/AuthSessions/AuthSessionRepository") {}
 
@@ -108,7 +123,11 @@ const AuthSessionDbRow = Schema.Struct({
   scopes: Schema.fromJsonString(AuthEnvironmentScopes),
   method: ServerAuthSessionMethod,
   clientLabel: Schema.NullOr(Schema.String),
+  clientIpAddress: Schema.NullOr(Schema.String),
+  clientUserAgent: Schema.NullOr(Schema.String),
   clientDeviceType: Schema.Literals(["desktop", "mobile", "tablet", "bot", "unknown"]),
+  clientOs: Schema.NullOr(Schema.String),
+  clientBrowser: Schema.NullOr(Schema.String),
   issuedAt: Schema.DateTimeUtcFromString,
   expiresAt: Schema.DateTimeUtcFromString,
   lastConnectedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
@@ -121,7 +140,11 @@ const AuthSessionRawDbRow = Schema.Struct({
   scopes: Schema.Unknown,
   method: Schema.Unknown,
   clientLabel: Schema.Unknown,
+  clientIpAddress: Schema.Unknown,
+  clientUserAgent: Schema.Unknown,
   clientDeviceType: Schema.Unknown,
+  clientOs: Schema.Unknown,
+  clientBrowser: Schema.Unknown,
   issuedAt: Schema.Unknown,
   expiresAt: Schema.Unknown,
   lastConnectedAt: Schema.Unknown,
@@ -138,7 +161,11 @@ function toAuthSessionRecord(row: typeof AuthSessionDbRow.Type): AuthSessionReco
     method: row.method,
     client: {
       label: row.clientLabel,
+      ipAddress: row.clientIpAddress,
+      userAgent: row.clientUserAgent,
       deviceType: row.clientDeviceType,
+      os: row.clientOs,
+      browser: row.clientBrowser,
     },
     issuedAt: row.issuedAt,
     expiresAt: row.expiresAt,
@@ -175,7 +202,11 @@ export const make = Effect.gen(function* () {
           scopes,
           method,
           client_label,
+          client_ip_address,
+          client_user_agent,
           client_device_type,
+          client_os,
+          client_browser,
           issued_at,
           expires_at,
           revoked_at
@@ -186,7 +217,11 @@ export const make = Effect.gen(function* () {
           ${JSON.stringify(input.scopes)},
           ${input.method},
           ${input.client.label},
+          ${input.client.ipAddress},
+          ${input.client.userAgent},
           ${input.client.deviceType},
+          ${input.client.os},
+          ${input.client.browser},
           ${input.issuedAt},
           ${input.expiresAt},
           NULL
@@ -205,7 +240,11 @@ export const make = Effect.gen(function* () {
           scopes AS "scopes",
           method AS "method",
           client_label AS "clientLabel",
+          client_ip_address AS "clientIpAddress",
+          client_user_agent AS "clientUserAgent",
           client_device_type AS "clientDeviceType",
+          client_os AS "clientOs",
+          client_browser AS "clientBrowser",
           issued_at AS "issuedAt",
           expires_at AS "expiresAt",
           last_connected_at AS "lastConnectedAt",
@@ -226,7 +265,11 @@ export const make = Effect.gen(function* () {
           scopes AS "scopes",
           method AS "method",
           client_label AS "clientLabel",
+          client_ip_address AS "clientIpAddress",
+          client_user_agent AS "clientUserAgent",
           client_device_type AS "clientDeviceType",
+          client_os AS "clientOs",
+          client_browser AS "clientBrowser",
           issued_at AS "issuedAt",
           expires_at AS "expiresAt",
           last_connected_at AS "lastConnectedAt",
@@ -244,6 +287,20 @@ export const make = Effect.gen(function* () {
       sql`
         UPDATE auth_sessions
         SET last_connected_at = ${lastConnectedAt}
+        WHERE session_id = ${sessionId}
+          AND revoked_at IS NULL
+      `,
+  });
+
+  // COALESCE keeps the previous value when a client reports only one field, so
+  // a partial report never nulls out data a fuller client stored earlier.
+  const setClientConnectionRow = SqlSchema.void({
+    Request: SetAuthSessionClientConnectionInput,
+    execute: ({ sessionId, surface, appVersion }) =>
+      sql`
+        UPDATE auth_sessions
+        SET client_surface = COALESCE(${surface}, client_surface),
+            client_app_version = COALESCE(${appVersion}, client_app_version)
         WHERE session_id = ${sessionId}
           AND revoked_at IS NULL
       `,
@@ -372,6 +429,17 @@ export const make = Effect.gen(function* () {
       ),
     );
 
+  const setClientConnection: AuthSessionRepository["Service"]["setClientConnection"] = (input) =>
+    setClientConnectionRow(input).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "AuthSessionRepository.setClientConnection:query",
+          "AuthSessionRepository.setClientConnection:encodeRequest",
+          { sessionId: input.sessionId },
+        ),
+      ),
+    );
+
   return {
     create,
     getById,
@@ -379,6 +447,7 @@ export const make = Effect.gen(function* () {
     revoke,
     revokeAllExcept,
     setLastConnectedAt,
+    setClientConnection,
   } satisfies AuthSessionRepository["Service"];
 });
 

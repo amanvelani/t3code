@@ -5,6 +5,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -54,6 +55,7 @@ const failingSessionLookupRepositoryLayer = Layer.succeed(AuthSessions.AuthSessi
   revoke: () => Effect.fail(repositoryFailure),
   revokeAllExcept: () => Effect.fail(repositoryFailure),
   setLastConnectedAt: () => Effect.void,
+  setClientConnection: () => Effect.void,
 });
 
 const failingSessionLookupCredentialLayer = Layer.effect(
@@ -98,6 +100,9 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
         client: {
           label: "Desktop app",
           deviceType: "desktop",
+          os: "macOS",
+          browser: "Electron",
+          ipAddress: "127.0.0.1",
         },
       });
       const verified = yield* sessions.verify(issued.token);
@@ -106,6 +111,7 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       expect(verified.subject).toBe("desktop-bootstrap");
       expect(verified.scopes).toEqual(["orchestration:read", "access:write"]);
       expect(verified.client.label).toBe("Desktop app");
+      expect(verified.client.browser).toBe("Electron");
       expect(verified.expiresAt?.toString()).toBe(issued.expiresAt.toString());
     }).pipe(Effect.provide(makeSessionStoreLayer())),
   );
@@ -246,6 +252,8 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
         client: {
           label: "Desktop app",
           deviceType: "desktop",
+          os: "macOS",
+          browser: "Electron",
         },
       });
       const client = yield* sessions.issue({
@@ -254,6 +262,9 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
         client: {
           label: "Julius iPhone",
           deviceType: "mobile",
+          os: "iOS",
+          browser: "Safari",
+          ipAddress: "192.168.1.88",
         },
       });
       const clientWebSocket = yield* sessions.issueWebSocketToken(client.sessionId);
@@ -334,5 +345,36 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       expect(afterReconnect[0]?.lastConnectedAt).not.toBeNull();
       expect(afterReconnect[0]?.lastConnectedAt?.toString()).not.toBe(firstConnectedAt?.toString());
     }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
+  );
+  it.effect("records client connection metadata without clearing prior values", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const sql = yield* SqlClient.SqlClient;
+      const issued = yield* sessions.issue({
+        subject: "client-connection-test",
+        method: "bearer-access-token",
+      });
+      const readRow = sql<{
+        readonly surface: string | null;
+        readonly appVersion: string | null;
+      }>`
+        SELECT client_surface AS "surface", client_app_version AS "appVersion"
+        FROM auth_sessions
+        WHERE session_id = ${issued.sessionId}
+      `;
+
+      yield* sessions.recordClientConnection(issued.sessionId, {
+        surface: "mobile",
+        appVersion: "1.2.0",
+      });
+      expect((yield* readRow)[0]).toEqual({ surface: "mobile", appVersion: "1.2.0" });
+
+      // A partial report (old or minimal client) must not null out stored data.
+      yield* sessions.recordClientConnection(issued.sessionId, { appVersion: "1.3.0" });
+      expect((yield* readRow)[0]).toEqual({ surface: "mobile", appVersion: "1.3.0" });
+
+      yield* sessions.recordClientConnection(issued.sessionId, {});
+      expect((yield* readRow)[0]).toEqual({ surface: "mobile", appVersion: "1.3.0" });
+    }).pipe(Effect.provide(Layer.mergeAll(makeSessionStoreLayer(), SqlitePersistenceMemory))),
   );
 });

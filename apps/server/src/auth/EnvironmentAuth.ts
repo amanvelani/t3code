@@ -420,7 +420,10 @@ export class EnvironmentAuth extends Context.Service<
     readonly getSessionState: (
       request: HttpServerRequest.HttpServerRequest,
     ) => Effect.Effect<AuthSessionState, ServerAuthInternalError>;
-    readonly createBrowserSession: (credential: string) => Effect.Effect<
+    readonly createBrowserSession: (
+      credential: string,
+      requestMetadata: AuthClientMetadata,
+    ) => Effect.Effect<
       {
         readonly response: AuthBrowserSessionResult;
         readonly sessionToken: string;
@@ -430,6 +433,7 @@ export class EnvironmentAuth extends Context.Service<
     readonly exchangeBootstrapCredentialForAccessToken: (
       credential: string,
       requestedScopes: ReadonlyArray<AuthEnvironmentScope> | undefined,
+      requestMetadata: AuthClientMetadata,
       input?: {
         readonly proofKeyThumbprint?: string;
       },
@@ -689,7 +693,10 @@ export const make = Effect.gen(function* () {
       Effect.withSpan("EnvironmentAuth.getSessionState"),
     );
 
-  const createBrowserSession: EnvironmentAuth["Service"]["createBrowserSession"] = (credential) =>
+  const createBrowserSession: EnvironmentAuth["Service"]["createBrowserSession"] = (
+    credential,
+    requestMetadata,
+  ) =>
     bootstrapCredentials.consume(credential).pipe(
       Effect.mapError(toBootstrapExchangeError),
       Effect.flatMap((grant) =>
@@ -699,7 +706,7 @@ export const make = Effect.gen(function* () {
             subject: grant.subject,
             scopes: grant.scopes,
             client: {
-              deviceType: "unknown",
+              ...requestMetadata,
               ...(grant.label ? { label: grant.label } : {}),
             },
           })
@@ -723,7 +730,7 @@ export const make = Effect.gen(function* () {
     );
 
   const exchangeBootstrapCredentialForAccessToken: EnvironmentAuth["Service"]["exchangeBootstrapCredentialForAccessToken"] =
-    (credential, requestedScopes, input) =>
+    (credential, requestedScopes, requestMetadata, input) =>
       bootstrapCredentials.consume(credential, input).pipe(
         Effect.mapError(toBootstrapExchangeError),
         Effect.flatMap((grant) =>
@@ -744,7 +751,7 @@ export const make = Effect.gen(function* () {
                     }
                   : {}),
                 client: {
-                  deviceType: "unknown",
+                  ...requestMetadata,
                   ...(grant.label ? { label: grant.label } : {}),
                 },
               })

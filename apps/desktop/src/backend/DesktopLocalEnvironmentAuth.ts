@@ -70,6 +70,10 @@ export const make = Effect.gen(function* () {
         const session = yield* bootstrapRemoteBearerSession({
           httpBaseUrl: config.httpBaseUrl.href,
           credential,
+          clientMetadata: {
+            label: "T3 Code Desktop",
+            deviceType: "desktop",
+          },
         }).pipe(
           Effect.provideService(HttpClient.HttpClient, httpClient),
           Effect.mapError(

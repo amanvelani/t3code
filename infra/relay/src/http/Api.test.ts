@@ -1,6 +1,7 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
+import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -9,6 +10,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import * as TestClock from "effect/testing/TestClock";
+import * as Tracer from "effect/Tracer";
 import * as HttpRouter from "effect/unstable/http/HttpRouter";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
@@ -22,10 +24,11 @@ import {
   relayEnvironmentAuthLayer,
   relayNotFoundRoute,
   relayDpopFailureReason,
-  relayRequestDeadline,
   revokeEnvironmentLinkRecord,
+  traceRelayHttpRequestWith,
   unlinkEnvironmentRecord,
   verifyRelayClientBearerToken,
+  withoutCapturedParentSpan,
 } from "./Api.ts";
 import * as RelayConfiguration from "../Config.ts";
 import * as RelayDb from "../db.ts";
@@ -414,21 +417,83 @@ describe("relay environment unlink", () => {
   });
 });
 
-describe("relay request deadline", () => {
+describe("relay request tracing", () => {
+  it.effect(
+    "does not parent endpoint spans to an ambient parent captured while building handlers",
+    () =>
+      Effect.gen(function* () {
+        const spans: Array<Tracer.NativeSpan> = [];
+        const tracer = Tracer.make({
+          span: (options) => {
+            const span = new Tracer.NativeSpan(options);
+            spans.push(span);
+            return span;
+          },
+        });
+        const ambientParent = Tracer.externalSpan({
+          traceId: "00000000000000000000000000000001",
+          spanId: "0000000000000001",
+          sampled: true,
+        });
+        const endpoint = yield* withoutCapturedParentSpan(
+          Effect.context<never>().pipe(
+            Effect.map((capturedContext: Context.Context<never>) =>
+              Effect.succeed(HttpServerResponse.empty({ status: 204 })).pipe(
+                Effect.withSpan("relay.test.endpoint"),
+                Effect.provideContext(capturedContext),
+              ),
+            ),
+          ),
+        ).pipe(Effect.provideService(Tracer.ParentSpan, ambientParent));
+        const request = HttpServerRequest.fromWeb(
+          new Request("https://relay.test/v1/mobile/devices?client=mobile", {
+            method: "POST",
+            headers: {
+              authorization: "Bearer secret",
+              dpop: "signed-proof",
+            },
+          }),
+        );
+
+        yield* traceRelayHttpRequestWith(endpoint, Layer.succeed(Tracer.Tracer, tracer)).pipe(
+          Effect.provideService(HttpServerRequest.HttpServerRequest, request),
+        );
+
+        expect(spans.map((span) => span.name)).toEqual(["http.server POST", "relay.test.endpoint"]);
+        expect(spans[0]?.kind).toBe("server");
+        expect(spans[0]?.attributes.get("url.path")).toBe("/v1/mobile/devices");
+        expect(spans[0]?.attributes.get("http.response.status_code")).toBe(204);
+        expect(spans[0]?.attributes.get("http.request.header.authorization")).toBe("<redacted>");
+        expect(spans[0]?.attributes.get("http.request.header.dpop")).toBe("<redacted>");
+        expect(Option.isNone(spans[0]!.parent)).toBe(true);
+        expect(Option.getOrUndefined(spans[1]!.parent)?.spanId).toBe(spans[0]?.spanId);
+      }),
+  );
+
   it.effect("fails hung requests with a 504 before the client's 10s abort", () =>
     Effect.gen(function* () {
+      const spans: Array<Tracer.NativeSpan> = [];
+      const tracer = Tracer.make({
+        span: (options) => {
+          const span = new Tracer.NativeSpan(options);
+          spans.push(span);
+          return span;
+        },
+      });
       const request = HttpServerRequest.fromWeb(
         new Request("https://relay.test/v1/mobile/devices", { method: "POST" }),
       );
 
-      const fiber = yield* relayRequestDeadline(Effect.never).pipe(
-        Effect.provideService(HttpServerRequest.HttpServerRequest, request),
-        Effect.forkChild,
-      );
+      const fiber = yield* traceRelayHttpRequestWith(
+        Effect.never,
+        Layer.succeed(Tracer.Tracer, tracer),
+      ).pipe(Effect.provideService(HttpServerRequest.HttpServerRequest, request), Effect.forkChild);
       yield* TestClock.adjust(Duration.millis(RELAY_REQUEST_DEADLINE_MS));
       const response = yield* Fiber.join(fiber);
 
       expect(response.status).toBe(504);
+      expect(spans[0]?.attributes.get("relay.request.deadline_exceeded")).toBe(true);
+      expect(spans[0]?.attributes.get("http.response.status_code")).toBe(504);
     }),
   );
 });

@@ -922,8 +922,14 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
     clientSession.client.deviceType !== "unknown"
       ? clientSession.client.deviceType[0]?.toUpperCase() + clientSession.client.deviceType.slice(1)
       : null,
+    clientSession.client.os ?? null,
+    clientSession.client.browser ?? null,
+    clientSession.client.ipAddress ?? null,
   ].filter((value): value is string => value !== null);
-  const primaryLabel = clientSession.client.label ?? clientSession.subject;
+  const primaryLabel =
+    clientSession.client.label ??
+    ([clientSession.client.os, clientSession.client.browser].filter(Boolean).join(" · ") ||
+      clientSession.subject);
 
   return (
     <div className={accessRowClassName(presentation)}>

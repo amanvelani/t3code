@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import { remoteHttpClientLayer } from "../rpc/http.ts";
-import { SshEnvironmentGateway } from "../platform/capabilities.ts";
+import { ClientPresentation, SshEnvironmentGateway } from "../platform/capabilities.ts";
 import { BearerConnectionCredential, BearerConnectionProfile } from "./catalog.ts";
 import { BearerConnectionTarget } from "./model.ts";
 import {
@@ -13,6 +13,18 @@ import {
   preparePairingRegistration,
   prepareSshRegistration,
 } from "./onboarding.ts";
+
+const CLIENT_PRESENTATION_LAYER = Layer.succeed(
+  ClientPresentation,
+  ClientPresentation.of({
+    metadata: {
+      label: "T3 Code Test",
+      deviceType: "desktop",
+      os: "Test OS",
+    },
+    scopes: AuthStandardClientScopes,
+  }),
+);
 
 function pairingHttpLayer(
   calls: Array<{ readonly url: string; readonly init: RequestInit }>,
@@ -69,7 +81,7 @@ describe("connection onboarding", () => {
       const registration = yield* preparePairingRegistration({
         host: "remote.example.test",
         pairingCode: "pairing-token",
-      }).pipe(Effect.provide(pairingHttpLayer(calls)));
+      }).pipe(Effect.provide(Layer.mergeAll(CLIENT_PRESENTATION_LAYER, pairingHttpLayer(calls))));
 
       expect(registration).toMatchObject({
         _tag: "BearerConnectionRegistration",
@@ -102,7 +114,7 @@ describe("connection onboarding", () => {
       const tokenParams = new URLSearchParams(tokenBody);
       expect(tokenParams.get("subject_token")).toBe("pairing-token");
       expect(tokenParams.get("scope")).toBe(AuthStandardClientScopes.join(" "));
-      expect(tokenParams.has("client_label")).toBe(false);
+      expect(tokenParams.get("client_label")).toBe("T3 Code Test");
     }),
   );
 
@@ -114,7 +126,12 @@ describe("connection onboarding", () => {
         host: "remote.example.test",
         pairingCode: "pairing-token",
       }).pipe(
-        Effect.provide(Layer.mergeAll(pairingHttpLayer(calls, { failDescriptor: true }))),
+        Effect.provide(
+          Layer.mergeAll(
+            CLIENT_PRESENTATION_LAYER,
+            pairingHttpLayer(calls, { failDescriptor: true }),
+          ),
+        ),
         Effect.flip,
       );
 
@@ -130,7 +147,10 @@ describe("connection onboarding", () => {
       const error = yield* preparePairingRegistration({
         host: "",
         pairingCode: "",
-      }).pipe(Effect.provide(pairingHttpLayer(calls)), Effect.flip);
+      }).pipe(
+        Effect.provide(Layer.mergeAll(CLIENT_PRESENTATION_LAYER, pairingHttpLayer(calls))),
+        Effect.flip,
+      );
 
       expect(error).toMatchObject({
         _tag: "ConnectionBlockedError",

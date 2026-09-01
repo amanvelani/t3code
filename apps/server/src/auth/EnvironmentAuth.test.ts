@@ -52,6 +52,13 @@ const makeCookieRequest = (
     EnvironmentAuth.EnvironmentAuth["Service"]["authenticateHttpRequest"]
   >[0];
 
+const requestMetadata = {
+  deviceType: "desktop" as const,
+  os: "macOS",
+  browser: "Chrome",
+  ipAddress: "192.168.1.23",
+};
+
 it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
   it.effect("classifies invalid bootstrap credential failures for the HTTP boundary", () =>
     Effect.sync(() => {
@@ -84,7 +91,10 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       const sessions = yield* SessionStore.SessionStore;
 
       const pairingCredential = yield* serverAuth.issuePairingCredential();
-      const exchanged = yield* serverAuth.createBrowserSession(pairingCredential.credential);
+      const exchanged = yield* serverAuth.createBrowserSession(
+        pairingCredential.credential,
+        requestMetadata,
+      );
       const verified = yield* serverAuth.authenticateHttpRequest(
         makeCookieRequest(sessions.cookieName, exchanged.sessionToken),
       );
@@ -121,10 +131,11 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       const pairingCredential = yield* serverAuth.issuePairingCredential();
 
       const error = yield* serverAuth
-        .exchangeBootstrapCredentialForAccessToken(pairingCredential.credential, [
-          "orchestration:read",
-          "access:write",
-        ])
+        .exchangeBootstrapCredentialForAccessToken(
+          pairingCredential.credential,
+          ["orchestration:read", "access:write"],
+          requestMetadata,
+        )
         .pipe(Effect.flip);
 
       expect(error._tag).toBe("ServerAuthScopeNotGrantedError");
@@ -141,6 +152,7 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       const token = yield* serverAuth.exchangeBootstrapCredentialForAccessToken(
         pairingCredential.credential,
         undefined,
+        requestMetadata,
       );
 
       expect(token.scope).toBe("orchestration:read");
@@ -176,7 +188,7 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
         ),
       ).toBe(false);
 
-      const exchanged = yield* serverAuth.createBrowserSession(token ?? "");
+      const exchanged = yield* serverAuth.createBrowserSession(token ?? "", requestMetadata);
       const verified = yield* serverAuth.authenticateHttpRequest(
         makeCookieRequest(sessions.cookieName, exchanged.sessionToken),
       );
@@ -202,8 +214,10 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
         const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
         const sessions = yield* SessionStore.SessionStore;
 
-        const administrativeExchange =
-          yield* serverAuth.createBrowserSession("desktop-bootstrap-token");
+        const administrativeExchange = yield* serverAuth.createBrowserSession(
+          "desktop-bootstrap-token",
+          requestMetadata,
+        );
         const administrativeSession = yield* serverAuth.authenticateHttpRequest(
           makeCookieRequest(sessions.cookieName, administrativeExchange.sessionToken),
         );
@@ -211,7 +225,16 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
           label: "Julius iPhone",
         });
         const listedPairingLinks = yield* serverAuth.listPairingLinks();
-        const clientExchange = yield* serverAuth.createBrowserSession(pairingCredential.credential);
+        const clientExchange = yield* serverAuth.createBrowserSession(
+          pairingCredential.credential,
+          {
+            ...requestMetadata,
+            deviceType: "mobile",
+            os: "iOS",
+            browser: "Safari",
+            ipAddress: "192.168.1.88",
+          },
+        );
         const clientSession = yield* serverAuth.authenticateHttpRequest(
           makeCookieRequest(sessions.cookieName, clientExchange.sessionToken),
         );
@@ -244,7 +267,7 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
         expect(
           clientsBeforeRevoke.find((entry) => entry.sessionId === clientSession.sessionId)?.client
             .deviceType,
-        ).toBe("unknown");
+        ).toBe("mobile");
         expect(revokedCount).toBe(1);
         expect(clientsAfterRevoke).toHaveLength(1);
         expect(clientsAfterRevoke[0]?.sessionId).toBe(administrativeSession.sessionId);

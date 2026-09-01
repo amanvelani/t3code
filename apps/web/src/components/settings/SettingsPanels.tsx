@@ -1873,6 +1873,10 @@ export function GeneralSettingsPanel() {
   const serverProviders = useAtomValue(primaryServerProvidersAtom);
   const diagnosticsDescription = formatDiagnosticsDescription({
     localTracingEnabled: observability?.localTracingEnabled ?? false,
+    otlpTracesEnabled: observability?.otlpTracesEnabled ?? false,
+    otlpTracesUrl: observability?.otlpTracesUrl,
+    otlpMetricsEnabled: observability?.otlpMetricsEnabled ?? false,
+    otlpMetricsUrl: observability?.otlpMetricsUrl,
   });
 
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
@@ -2108,6 +2112,28 @@ export function GeneralSettingsPanel() {
                 updateSettings({ showSkillsInSlashMenu: Boolean(checked) })
               }
               aria-label="Show skills in slash menu"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("telemetry")}
+          description="Send usage events, a hashed account or installation identifier, and basic device information to the T3 Code maintainers."
+          resetAction={
+            settings.enableTelemetry !== DEFAULT_UNIFIED_SETTINGS.enableTelemetry ? (
+              <SettingResetButton
+                label="telemetry"
+                onClick={() =>
+                  updateSettings({ enableTelemetry: DEFAULT_UNIFIED_SETTINGS.enableTelemetry })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.enableTelemetry}
+              onCheckedChange={(checked) => updateSettings({ enableTelemetry: Boolean(checked) })}
+              aria-label="Share usage data"
             />
           }
         />
