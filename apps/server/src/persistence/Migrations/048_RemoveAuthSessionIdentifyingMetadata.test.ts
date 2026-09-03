@@ -8,12 +8,12 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("047_RemoveAuthSessionIdentifyingMetadata", (it) => {
+layer("048_RemoveAuthSessionIdentifyingMetadata", (it) => {
   it.effect("scrubs identifying metadata from existing auth sessions", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* runMigrations({ toMigrationInclusive: 46 });
+      yield* runMigrations({ toMigrationInclusive: 47 });
       yield* sql`
         INSERT INTO auth_sessions (
           session_id,
@@ -51,7 +51,7 @@ layer("047_RemoveAuthSessionIdentifyingMetadata", (it) => {
         )
       `;
 
-      yield* runMigrations({ toMigrationInclusive: 47 });
+      yield* runMigrations({ toMigrationInclusive: 48 });
 
       const rows = yield* sql<{
         readonly label: string | null;

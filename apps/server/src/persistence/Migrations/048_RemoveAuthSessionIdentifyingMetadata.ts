@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 /**
- * Remove identifying connection metadata collected by prior server versions.
+ * Remove identifying connection metadata retained by prior server versions.
  * Keep the columns for migration compatibility, but do not retain their values.
  */
 export default Effect.gen(function* () {
