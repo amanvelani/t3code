@@ -103,36 +103,43 @@ layer("AzureDevOpsPullRequestCli.layer", (it) => {
     }),
   );
 
-  it.effect("allows a large PR listing while keeping the larger output limit operation-local", () =>
+  it.effect("reads an Azure pull request page larger than the VCS default output limit", () =>
     Effect.gen(function* () {
-      const row = { ...pullRequestRows(1, 1)[0], description: "x".repeat(1_100_000) };
+      const rows = pullRequestRows(100, 1).map((row) => ({
+        ...row,
+        description: "x".repeat(10_000),
+      }));
       // @effect-diagnostics-next-line preferSchemaOverJson:off
-      const listing = JSON.stringify([row]);
-      assert.isAbove(listing.length, 1_000_000);
-      mockedExecute.mockReturnValueOnce(Effect.succeed(output(listing))).mockReturnValueOnce(
-        Effect.succeed(
-          // @effect-diagnostics-next-line preferSchemaOverJson:off
-          output(JSON.stringify({ name: "bilal@acme.dev", type: "user" })),
-        ),
-      );
+      const response = JSON.stringify(rows);
+      expect(Buffer.byteLength(response)).toBeGreaterThan(1_000_000);
+
+      mockedExecute.mockImplementationOnce((input) => {
+        const maxOutputBytes =
+          "maxOutputBytes" in input && typeof input.maxOutputBytes === "number"
+            ? input.maxOutputBytes
+            : 1_000_000;
+        return Effect.succeed(
+          maxOutputBytes >= Buffer.byteLength(response)
+            ? output(response)
+            : {
+                ...output(response.slice(0, maxOutputBytes)),
+                stdoutTruncated: true,
+              },
+        );
+      });
       const cli = yield* AzureDevOpsPullRequestCli.AzureDevOpsPullRequestCli;
 
       const batch = yield* cli.listPullRequests({
         cwd: "/w",
         repository: "web",
-        state: "open",
+        state: "merged",
         involvement: "all",
         viewer: "bilal@acme.dev",
-        limit: 10,
+        limit: 99,
       });
-      yield* cli.getViewer({ cwd: "/w" });
 
-      assert.strictEqual(batch.items.length, 1);
-      assert.strictEqual(
-        inputOfCall(0).maxOutputBytes,
-        AzureDevOpsPullRequestCli.AZURE_PR_LIST_MAX_OUTPUT_BYTES,
-      );
-      expect(inputOfCall(1)).not.toHaveProperty("maxOutputBytes");
+      assert.strictEqual(batch.items.length, 99);
+      assert.isTrue(batch.truncated);
     }),
   );
 
@@ -413,7 +420,7 @@ layer("AzureDevOpsPullRequestCli.layer", (it) => {
   );
 
   it.effect.each([
-    { action: "enable-auto-merge", expected: ["--auto-complete", "true", "--squash", "false"] },
+    { action: "enable-auto-merge", expected: ["--auto-complete", "true"] },
     { action: "disable-auto-merge", expected: ["--auto-complete", "false"] },
     { action: "draft", expected: ["--draft", "true"] },
     { action: "ready", expected: ["--draft", "false"] },

@@ -4,10 +4,8 @@ import {
   type ThreadId,
   type ToolLifecycleItemType,
 } from "@t3tools/contracts";
-import {
-  classifyMarkdownImageSource,
-  markdownImageSourceFragment,
-} from "@t3tools/client-runtime/markdown-images";
+import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
+import { resolveMediaSource } from "@t3tools/client-runtime/media-source";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 
 export function isWorktreeSetupActivity(kind: string): boolean {
@@ -17,6 +15,7 @@ export function isWorktreeSetupActivity(kind: string): boolean {
 export interface WorkLogPresentationEntry {
   readonly label: string;
   readonly toolTitle?: string;
+  readonly toolData?: unknown;
   readonly tone: "thinking" | "tool" | "info" | "error";
   readonly command?: string;
   readonly detail?: string;
@@ -35,6 +34,7 @@ export type ToolGroupAction =
   | "read"
   | "edit"
   | "command"
+  | "browser"
   | "code-search"
   | "search"
   | "other"
@@ -49,6 +49,110 @@ export type ToolGroupSummaryKind =
 
 export function normalizeCompactToolLabel(value: string): string {
   return value.replace(/\s+(?:complete|completed)\s*$/i, "").trim();
+}
+
+const T3_MCP_TOOL_LABELS: Record<
+  string,
+  readonly [action: string, running: string, completed: string, detail: string]
+> = {
+  orchestrator_capabilities: ["Get", "Getting", "Got", "orchestration capabilities"],
+  delegate_task: ["Delegate", "Delegating", "Delegated", "a child task"],
+  task_status: ["Get", "Getting", "Got", "delegated task status"],
+  task_cancel: ["Cancel", "Canceling", "Canceled", "delegated task"],
+  schedule_task: ["Schedule", "Scheduling", "Scheduled", "a recurring task"],
+  list_scheduled_tasks: ["List", "Listing", "Listed", "scheduled tasks"],
+  update_scheduled_task: ["Update", "Updating", "Updated", "a scheduled task"],
+  delete_scheduled_task: ["Delete", "Deleting", "Deleted", "a scheduled task"],
+  create_threads: ["Create", "Creating", "Created", "T3 threads"],
+  t3_thread_start: ["Start", "Starting", "Started", "a T3 thread"],
+  t3_thread_list: ["List", "Listing", "Listed", "T3 threads"],
+  t3_thread_read: ["Read", "Reading", "Read", "a T3 thread"],
+  t3_thread_send: ["Send", "Sending", "Sent", "to a T3 thread"],
+  t3_thread_wait: ["Wait", "Waiting", "Waited", "for a T3 thread"],
+  t3_thread_interrupt: ["Interrupt", "Interrupting", "Interrupted", "a T3 thread"],
+  t3_worktree_handoff: ["Hand off", "Handing off", "Handed off", "thread to a git worktree"],
+  t3_worktree_status: ["Get", "Getting", "Got", "thread worktree status"],
+  preview_status: ["Get", "Getting", "Got", "preview browser status"],
+  preview_open: ["Open", "Opening", "Opened", "a page in the preview browser"],
+  preview_navigate: ["Navigate", "Navigating", "Navigated", "the preview browser"],
+  preview_snapshot: [
+    "Take a snapshot of",
+    "Taking a snapshot of",
+    "Took a snapshot of",
+    "the preview page",
+  ],
+  preview_click: ["Click", "Clicking", "Clicked", "in the preview browser"],
+  preview_press: ["Press", "Pressing", "Pressed", "a key in the preview browser"],
+  preview_type: ["Type", "Typing", "Typed", "in the preview browser"],
+  preview_scroll: ["Scroll", "Scrolling", "Scrolled", "the preview browser"],
+  preview_resize: ["Resize", "Resizing", "Resized", "the preview browser"],
+  preview_evaluate: ["Evaluate", "Evaluating", "Evaluated", "script in the preview browser"],
+  preview_wait_for: ["Wait", "Waiting", "Waited", "for the preview page"],
+  preview_set_appearance: ["Set", "Setting", "Set", "preview browser appearance"],
+  preview_recording_start: ["Start", "Starting", "Started", "recording the preview browser"],
+  preview_recording_stop: ["Stop", "Stopping", "Stopped", "recording the preview browser"],
+};
+
+function resolveT3McpToolPresentation(value: string | undefined, status: string | undefined) {
+  if (!value) return null;
+  const name = normalizeCompactToolLabel(value).replace(
+    /^(?:mcp__(?:t3-code|t3_code|t3code)__|(?:t3-code|t3_code|t3code)(?:[.:/]|\s*·\s*))/i,
+    "",
+  );
+  if (!Object.hasOwn(T3_MCP_TOOL_LABELS, name)) return null;
+
+  const [action, running, completed, detail] = T3_MCP_TOOL_LABELS[name]!;
+  const verb =
+    status === "inProgress"
+      ? running
+      : status === "completed"
+        ? completed
+        : status === "failed"
+          ? `Failed to ${action.toLowerCase()}`
+          : status === "declined"
+            ? `Declined to ${action.toLowerCase()}`
+            : status === "stopped"
+              ? `Stopped ${running.toLowerCase()}`
+              : running;
+
+  return {
+    displayName: `${verb} ${detail}`,
+    icon: name.startsWith("preview_") ? ("browser" as const) : ("t3-code" as const),
+  };
+}
+
+/** Latest live activity stays present-tense unless the call itself failed, declined, or stopped. */
+export function liveActivityToolStatus(status: string | undefined, presentTense: boolean) {
+  if (status === "failed" || status === "declined" || status === "stopped") return status;
+  if (presentTense || status === "inProgress") return "inProgress";
+  return "completed";
+}
+
+/** Resolves tool identity before choosing labels or icons in either client. */
+export function resolveWorkEntryToolPresentation(
+  entry: Pick<WorkLogPresentationEntry, "label" | "toolTitle" | "toolData" | "toolLifecycleStatus">,
+  fallbackStatus?: "inProgress" | "completed",
+) {
+  const status = entry.toolLifecycleStatus ?? fallbackStatus;
+  const data = entry.toolData;
+  if (data !== null && typeof data === "object") {
+    if (
+      "server" in data &&
+      typeof data.server === "string" &&
+      "tool" in data &&
+      typeof data.tool === "string"
+    ) {
+      return resolveT3McpToolPresentation(`${data.server}.${data.tool}`, status);
+    }
+    if ("toolName" in data && typeof data.toolName === "string") {
+      return resolveT3McpToolPresentation(data.toolName, status);
+    }
+  }
+
+  return (
+    resolveT3McpToolPresentation(entry.toolTitle, status) ??
+    resolveT3McpToolPresentation(entry.label, status)
+  );
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -207,6 +311,7 @@ export function workLogEntryIsLocalCodeSearch(entry: WorkLogPresentationEntry): 
 }
 
 export function toolGroupAction(entry: WorkLogPresentationEntry): ToolGroupAction {
+  if (resolveWorkEntryToolPresentation(entry)?.icon === "browser") return "browser";
   if (
     entry.requestKind === "file-read" ||
     entry.itemType === "image_view" ||
@@ -250,14 +355,10 @@ export function workEntryViewedImagePath(entry: WorkLogPresentationEntry): strin
 }
 
 export interface ViewedImageAsset {
-  readonly resource: Extract<AssetResource, { readonly _tag: "attachment" | "media-file" }>;
+  readonly resource: Extract<AssetResource, { readonly _tag: "media-file" }>;
   readonly alt: string;
   readonly srcFragment: string;
 }
-
-const ABSOLUTE_IMAGE_SOURCE_PATTERN = /^(?:file:|[\\/]|[a-z]:[\\/])/i;
-const T3_ATTACHMENT_IMAGE_PATH_PATTERN =
-  /(?:^|[\\/])(?:dev|userdata)[\\/]attachments[\\/]([a-z0-9_-]{1,128})\.[a-z0-9]{1,10}$/i;
 
 export function resolveViewedImageAsset(
   source: string,
@@ -266,24 +367,22 @@ export function resolveViewedImageAsset(
     readonly workspaceRoot?: string | null | undefined;
   },
 ): ViewedImageAsset | null {
+  // A relative path with no known workspace still names a media-file relative
+  // to the thread's workspace, so classify against "." and drop the prefix.
   const imageSource = classifyMarkdownImageSource(source, input.workspaceRoot ?? ".");
   if (imageSource._tag !== "WorkspaceFile") return null;
-
-  const path =
+  const resolvedFilePath =
     input.workspaceRoot == null && imageSource.path.startsWith("./")
       ? imageSource.path.slice(2)
       : imageSource.path;
-  const attachmentId = ABSOLUTE_IMAGE_SOURCE_PATTERN.test(source)
-    ? (T3_ATTACHMENT_IMAGE_PATH_PATTERN.exec(path)?.[1] ?? null)
-    : null;
 
-  return {
-    resource: attachmentId
-      ? { _tag: "attachment", attachmentId }
-      : { _tag: "media-file", threadId: input.threadId, path },
-    alt: path.split(/[\\/]/).at(-1) ?? "image",
-    srcFragment: markdownImageSourceFragment(source),
-  };
+  const media = resolveMediaSource(source, {
+    threadId: input.threadId,
+    workspaceRoot: input.workspaceRoot,
+    resolvedFilePath,
+  });
+  if (media === null || media.access !== "environment") return null;
+  return { resource: media.resource, alt: media.name, srcFragment: media.srcFragment };
 }
 
 function toolGroupActionCount(
@@ -312,6 +411,8 @@ function toolGroupActionLabel(action: ToolGroupAction, count: number): string {
       return `Changed ${count} ${count === 1 ? "file" : "files"}`;
     case "command":
       return `Ran ${count} ${count === 1 ? "command" : "commands"}`;
+    case "browser":
+      return `Used browser ${count} ${count === 1 ? "time" : "times"}`;
     case "search":
       return `Searched the web ${count} ${count === 1 ? "time" : "times"}`;
     case "code-search":
