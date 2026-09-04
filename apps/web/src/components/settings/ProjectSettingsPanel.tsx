@@ -857,7 +857,7 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
                 <ProjectFavicon
                   environmentId={representative.environmentId}
                   cwd={representative.workspaceRoot}
-                  projectName={group.displayName}
+                  projectName={representative.title}
                   faviconPath={faviconPath}
                   projectIcon={projectIcon}
                   className="size-6"
@@ -873,7 +873,7 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
                   Choose icon
                 </Button>
                 <Button
-                  size="xs"
+                  size="sm"
                   variant="outline"
                   type="button"
                   aria-label="Choose a project icon file"
@@ -907,6 +907,12 @@ function ProjectDetail({ group }: { group: SidebarProjectSnapshot }) {
                     modelOptionsByInstance={modelOptionsByInstance}
                     triggerVariant="outline"
                     triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+                    onOpenProviderSetup={(instanceId) => {
+                      void navigate({
+                        to: "/settings/providers",
+                        search: { environmentId: representative.environmentId, instanceId },
+                      });
+                    }}
                     onInstanceModelChange={(instanceId, model) => {
                       setDefaultModel(createModelSelection(instanceId, model));
                     }}
