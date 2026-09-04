@@ -437,12 +437,14 @@ export function PullRequestActorLabel({
   className,
   labelClassName,
   tooltip = true,
+  profileUrl,
 }: {
   actor: PullRequestActor | null;
   environmentId?: EnvironmentId;
   className?: string | undefined;
   labelClassName?: string;
   tooltip?: boolean;
+  profileUrl?: string | null;
 }) {
   const login = actor?.login ?? "ghost";
   const label = (
@@ -460,11 +462,28 @@ export function PullRequestActorLabel({
   return (
     <Tooltip>
       <TooltipTrigger
-        render={<span className={cn("flex min-w-0 items-center gap-1.5", className)} />}
+        render={
+          profileUrl ? (
+            <a
+              href={profileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Open ${login}'s profile`}
+            />
+          ) : (
+            <span />
+          )
+        }
+        className={cn(
+          "flex min-w-0 items-center gap-1.5",
+          profileUrl &&
+            "cursor-pointer rounded-sm underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+          className,
+        )}
       >
         {label}
       </TooltipTrigger>
-      <TooltipPopup side="top">{login}</TooltipPopup>
+      <TooltipPopup side="top">{profileUrl ? `Open ${login}'s profile` : login}</TooltipPopup>
     </Tooltip>
   );
 }
