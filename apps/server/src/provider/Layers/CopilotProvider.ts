@@ -35,7 +35,7 @@ import {
   type ProviderMaintenanceCapabilities,
 } from "../providerMaintenance.ts";
 import { makeCopilotSdkClient, resolveCopilotBinaryPath } from "../sdk/CopilotSdkClient.ts";
-import { buildCopilotSdkModels } from "../sdk/CopilotSdkModels.ts";
+import { buildCopilotSdkModels, withCopilotExperimentalModels } from "../sdk/CopilotSdkModels.ts";
 
 const COPILOT_PRESENTATION = {
   displayName: "GitHub Copilot",
@@ -185,9 +185,13 @@ export const discoverCopilotModelsViaSdk = (
   );
 
 export function getCopilotFallbackModels(
-  copilotSettings: Pick<CopilotSettings, "customModels">,
+  copilotSettings: Pick<CopilotSettings, "customModels" | "enableExperimentalMode">,
 ): ReadonlyArray<ServerProviderModel> {
-  return providerModelsFromSettings([], copilotSettings.customModels, EMPTY_CAPABILITIES);
+  return providerModelsFromSettings(
+    withCopilotExperimentalModels([], copilotSettings.enableExperimentalMode),
+    copilotSettings.customModels,
+    EMPTY_CAPABILITIES,
+  );
 }
 
 // ── Snapshot building ────────────────────────────────────────────────────────
@@ -212,7 +216,10 @@ export function buildCopilotProviderSnapshot(input: {
     enabled: input.copilotSettings.enabled,
     checkedAt: input.checkedAt,
     models: providerModelsFromSettings(
-      input.discoveredModels ?? [],
+      withCopilotExperimentalModels(
+        input.discoveredModels ?? [],
+        input.copilotSettings.enableExperimentalMode,
+      ),
       input.copilotSettings.customModels,
       EMPTY_CAPABILITIES,
     ),

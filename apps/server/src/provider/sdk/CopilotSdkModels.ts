@@ -55,6 +55,25 @@ const REASONING_EFFORT_VALUES: ReadonlyArray<CopilotReasoningEffort> = [
 /** Context tiers accepted by `SessionConfig.contextTier` / `session.setModel`. */
 const CONTEXT_TIER_VALUES: ReadonlyArray<CopilotContextTier> = ["default", "long_context"];
 
+export const COPILOT_HYDRAFUSION_MODEL_ID = "hydrafusion-max";
+
+export function withCopilotExperimentalModels(
+  models: ReadonlyArray<ServerProviderModel>,
+  enabled: boolean,
+): ReadonlyArray<ServerProviderModel> {
+  if (!enabled || models.some((model) => model.slug === COPILOT_HYDRAFUSION_MODEL_ID))
+    return models;
+  return [
+    ...models,
+    {
+      slug: COPILOT_HYDRAFUSION_MODEL_ID,
+      name: "HydraFusion (Research Preview)",
+      isCustom: false,
+      capabilities: EMPTY_CAPABILITIES,
+    },
+  ];
+}
+
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({ optionDescriptors: [] });
 
 function reasoningEffortLabel(effort: string): string {

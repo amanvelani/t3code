@@ -62,6 +62,7 @@ import {
   type CopilotSdkError,
 } from "../sdk/CopilotSdkClient.ts";
 import {
+  COPILOT_HYDRAFUSION_MODEL_ID,
   resolveCopilotSdkTunables,
   type CopilotContextTier,
   type CopilotReasoningEffort,
@@ -725,10 +726,23 @@ export function makeCopilotAdapter(
           tunables.reasoningEffort !== ctx.appliedReasoningEffort ||
           tunables.contextTier !== ctx.appliedContextTier;
         if (!changed) return;
-        const setModelOptions = {
-          ...(tunables.reasoningEffort ? { reasoningEffort: tunables.reasoningEffort } : {}),
-          ...(tunables.contextTier ? { contextTier: tunables.contextTier } : {}),
-        } as Parameters<CopilotSession["setModel"]>[1];
+        if (
+          targetModel === COPILOT_HYDRAFUSION_MODEL_ID &&
+          !copilotSettings.enableExperimentalMode
+        ) {
+          return yield* new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "sendTurn",
+            issue: "Enable Copilot Experimental features to use HydraFusion.",
+          });
+        }
+        const setModelOptions =
+          targetModel === COPILOT_HYDRAFUSION_MODEL_ID
+            ? {}
+            : ({
+                ...(tunables.reasoningEffort ? { reasoningEffort: tunables.reasoningEffort } : {}),
+                ...(tunables.contextTier ? { contextTier: tunables.contextTier } : {}),
+              } as Parameters<CopilotSession["setModel"]>[1]);
         yield* Effect.tryPromise({
           try: () => ctx.sdkSession.setModel(targetModel, setModelOptions),
           catch: (cause) =>
@@ -747,18 +761,6 @@ export function makeCopilotAdapter(
     const sendTurn: CopilotAdapterShape["sendTurn"] = (input) =>
       Effect.gen(function* () {
         const ctx = yield* requireSession(input.threadId);
-        // One turn at a time per thread. A second concurrent turn would
-        // overwrite `activeTurnCompletion` (stranding the first on its
-        // `Deferred.await`) and misattribute the in-flight SDK events, so
-        // reject it rather than corrupt state. The orchestration layer already
-        // serializes turns, so this is a defensive guard.
-        if (ctx.activeTurnCompletion) {
-          return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "sendTurn",
-            issue: "A turn is already in progress for this thread.",
-          });
-        }
         const turnId = TurnId.make(yield* randomUUIDv4);
         const turnModelSelection =
           input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
@@ -808,6 +810,34 @@ export function makeCopilotAdapter(
           });
         }
 
+        const messageOptions: MessageOptions = {
+          prompt: promptText,
+          ...(attachments.length > 0 ? { attachments } : {}),
+          agentMode: input.interactionMode === "plan" ? "plan" : "interactive",
+        };
+
+        // T3 sends follow-up messages through sendTurn while a turn is running.
+        // Deliver them to that turn without replacing its completion or changing
+        // its model; the original send owns the eventual terminal event.
+        if (ctx.activeTurnId !== undefined) {
+          const activeTurnId = ctx.activeTurnId;
+          yield* Effect.tryPromise({
+            try: () => ctx.sdkSession.send({ ...messageOptions, mode: "immediate" }),
+            catch: (cause) =>
+              new ProviderAdapterRequestError({
+                provider: PROVIDER,
+                method: "session/send",
+                detail: "Failed to send the Copilot follow-up.",
+                cause,
+              }),
+          });
+          return {
+            threadId: input.threadId,
+            turnId: activeTurnId,
+            resumeCursor: ctx.session.resumeCursor,
+          };
+        }
+
         yield* applyModelSelection(ctx, model, tunables);
 
         ctx.activeTurnId = turnId;
@@ -823,12 +853,6 @@ export function makeCopilotAdapter(
           turnId,
           payload: { model: model?.trim() ?? undefined },
         });
-
-        const messageOptions: MessageOptions = {
-          prompt: promptText,
-          ...(attachments.length > 0 ? { attachments } : {}),
-          agentMode: input.interactionMode === "plan" ? "plan" : "interactive",
-        };
 
         // Clear the active-turn markers however the turn ends — success,
         // failure, or interruption while awaiting `completion`. Without this

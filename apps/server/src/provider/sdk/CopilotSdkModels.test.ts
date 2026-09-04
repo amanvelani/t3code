@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { ModelInfo } from "@github/copilot-sdk";
 
 import {
+  withCopilotExperimentalModels,
   buildCopilotSdkModelCapabilities,
   buildCopilotSdkModels,
   modelSupportsLongContext,
@@ -123,5 +124,15 @@ describe("resolveCopilotSdkTunables", () => {
   it("returns empty for empty input", () => {
     expect(resolveCopilotSdkTunables([])).toEqual({});
     expect(resolveCopilotSdkTunables(undefined)).toEqual({});
+  });
+});
+
+describe("withCopilotExperimentalModels", () => {
+  it("only advertises HydraFusion with experimental opt-in", () => {
+    expect(withCopilotExperimentalModels([], false)).toEqual([]);
+    const models = withCopilotExperimentalModels([], true);
+    expect(models.map((model) => model.slug)).toEqual(["hydrafusion-max"]);
+    expect(models[0]?.capabilities?.optionDescriptors).toEqual([]);
+    expect(withCopilotExperimentalModels(models, true)).toHaveLength(1);
   });
 });

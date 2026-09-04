@@ -29,6 +29,32 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 
+import { COPILOT_HYDRAFUSION_MODEL_ID } from "./CopilotSdkModels.ts";
+
+/** HydraFusion is a synthetic runtime model omitted from session creation's catalog. */
+export async function openCopilotSdkSession<T extends SessionConfig | ResumeSessionConfig>(
+  config: T,
+  open: (config: T) => Promise<CopilotSession>,
+): Promise<CopilotSession> {
+  if (config.model !== COPILOT_HYDRAFUSION_MODEL_ID) return open(config);
+  if (!config.enableExperimentalMode) {
+    throw new Error("Enable Copilot Experimental features to use HydraFusion.");
+  }
+  const session = await open({
+    ...config,
+    model: undefined,
+    reasoningEffort: undefined,
+    contextTier: undefined,
+  });
+  try {
+    await session.setModel(COPILOT_HYDRAFUSION_MODEL_ID);
+    return session;
+  } catch (error) {
+    await session.disconnect().catch(() => {});
+    throw error;
+  }
+}
+
 export class CopilotSdkError extends Schema.TaggedErrorClass<CopilotSdkError>()("CopilotSdkError", {
   operation: Schema.String,
   cause: Schema.optional(Schema.Defect()),
@@ -274,32 +300,31 @@ export const makeCopilotSdkClient = (
     Effect.promise(() => stopClientBounded(client, CLIENT_STOP_TIMEOUT_MS)).pipe(Effect.asVoid);
 
   return Effect.acquireRelease(acquire, release).pipe(
-    Effect.map(
-      (client): CopilotSdkClient => ({
-        raw: client,
-        listModels: Effect.tryPromise({
-          try: () => client.listModels(),
-          catch: toSdkError("listModels"),
-        }),
-        getAuthStatus: Effect.tryPromise({
-          try: () => client.getAuthStatus(),
-          catch: toSdkError("getAuthStatus"),
-        }),
-        getStatus: Effect.tryPromise({
-          try: () => client.getStatus(),
-          catch: toSdkError("getStatus"),
-        }),
-        createSession: (config) =>
-          Effect.tryPromise({
-            try: () => client.createSession(config),
-            catch: toSdkError("createSession"),
-          }),
-        resumeSession: (sessionId, config) =>
-          Effect.tryPromise({
-            try: () => client.resumeSession(sessionId, config),
-            catch: toSdkError("resumeSession"),
-          }),
+    Effect.map((client): CopilotSdkClient => ({
+      raw: client,
+      listModels: Effect.tryPromise({
+        try: () => client.listModels(),
+        catch: toSdkError("listModels"),
       }),
-    ),
+      getAuthStatus: Effect.tryPromise({
+        try: () => client.getAuthStatus(),
+        catch: toSdkError("getAuthStatus"),
+      }),
+      getStatus: Effect.tryPromise({
+        try: () => client.getStatus(),
+        catch: toSdkError("getStatus"),
+      }),
+      createSession: (config) =>
+        Effect.tryPromise({
+          try: () => openCopilotSdkSession(config, (initial) => client.createSession(initial)),
+          catch: toSdkError("createSession"),
+        }),
+      resumeSession: (sessionId, config) =>
+        Effect.tryPromise({
+          try: () =>
+            openCopilotSdkSession(config, (initial) => client.resumeSession(sessionId, initial)),
+          catch: toSdkError("resumeSession"),
+        }),
+    })),
   );
 };
