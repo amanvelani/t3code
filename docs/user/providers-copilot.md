@@ -3,6 +3,13 @@
 T3 Code uses the GitHub Copilot CLI through the GitHub Copilot SDK. Install and authenticate the
 Copilot CLI first, then enable the provider in Settings.
 
+## Use Copilot skills
+
+The composer lists the same project, personal, plugin, and built-in skills that the Copilot CLI
+discovers for the selected workspace. Type `$` to pick one, or find it in the `/` menu. T3 Code
+uses Copilot's native command API to run the selected skill and keeps the surrounding message as
+the skill input.
+
 ## Send follow-up messages
 
 You can send a follow-up while Copilot is working to steer the current turn. The follow-up uses

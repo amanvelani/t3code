@@ -37,12 +37,22 @@ const makeHarness = Effect.gen(function* () {
     return "message-id";
   });
   const setModel = vi.fn<CopilotSession["setModel"]>(async () => {});
+  const listSkills = vi.fn<CopilotSession["rpc"]["skills"]["list"]>(async () => ({ skills: [] }));
+  const invokeCommand = vi.fn<CopilotSession["rpc"]["commands"]["invoke"]>(async () => ({
+    kind: "agent-prompt",
+    prompt: "expanded skill prompt",
+    displayPrompt: "/skill",
+  }));
   // Only the SDK methods exercised by these adapter tests are implemented.
   const session = {
     sessionId: "sdk-session",
     send,
     setModel,
     disconnect: async () => {},
+    rpc: {
+      skills: { list: listSkills },
+      commands: { invoke: invokeCommand },
+    },
   } as unknown as CopilotSession;
   vi.mocked(makeCopilotSdkClient).mockReturnValue(
     Effect.succeed({
@@ -70,7 +80,17 @@ const makeHarness = Effect.gen(function* () {
   const nextCompleted = Queue.take(events).pipe(
     Effect.repeat({ until: (event) => event.type === "turn.completed" }),
   );
-  return { adapter, send, setModel, sent, events, emitIdle, nextCompleted };
+  return {
+    adapter,
+    send,
+    setModel,
+    listSkills,
+    invokeCommand,
+    sent,
+    events,
+    emitIdle,
+    nextCompleted,
+  };
 });
 
 it.layer(layer)("CopilotAdapter follow-ups", (it) => {
@@ -146,6 +166,44 @@ it.layer(layer)("CopilotAdapter follow-ups", (it) => {
       expect(h.send).toHaveBeenCalledTimes(1);
       h.emitIdle();
       yield* Fiber.join(first);
+    }),
+  );
+
+  it.effect("expands a selected skill through Copilot's native command API", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness;
+      h.listSkills.mockResolvedValueOnce({
+        skills: [
+          {
+            name: "brainstorm",
+            commandName: "superpowers:brainstorm",
+            description: "Explore the problem.",
+            source: "plugin",
+            userInvocable: true,
+            enabled: true,
+            path: "/skills/brainstorm.md",
+          },
+        ],
+      });
+      const turn = yield* h.adapter
+        .sendTurn({
+          threadId,
+          input: "Use $superpowers:brainstorm for this feature",
+        })
+        .pipe(Effect.forkScoped);
+      yield* Queue.take(h.sent);
+
+      expect(h.invokeCommand).toHaveBeenCalledWith({
+        name: "superpowers:brainstorm",
+        input: "Use\nfor this feature",
+      });
+      expect(h.send).toHaveBeenCalledWith({
+        prompt: "expanded skill prompt",
+        agentMode: "interactive",
+      });
+
+      h.emitIdle();
+      yield* Fiber.join(turn);
     }),
   );
 });

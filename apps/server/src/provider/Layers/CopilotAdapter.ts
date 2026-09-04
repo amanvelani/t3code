@@ -79,6 +79,7 @@ import {
   permissionDetailFromSdk,
   toolItemTypeFromSdk,
 } from "../sdk/CopilotSdkRuntimeEvents.ts";
+import { planCopilotSkillDispatch } from "../Drivers/CopilotSkillDispatch.ts";
 import { type CopilotAdapterShape } from "../Services/CopilotAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
@@ -810,8 +811,36 @@ export function makeCopilotAdapter(
           });
         }
 
+        const resolvedPromptText = promptText.includes("$")
+          ? yield* Effect.tryPromise({
+              try: async () => {
+                const { skills } = await ctx.sdkSession.rpc.skills.list();
+                const dispatch = planCopilotSkillDispatch(promptText, skills);
+                if (!dispatch) return promptText;
+                const result = await ctx.sdkSession.rpc.commands.invoke({
+                  name: dispatch.commandName,
+                  ...(dispatch.input ? { input: dispatch.input } : {}),
+                });
+                return result.kind === "agent-prompt" ? result.prompt : promptText;
+              },
+              catch: (cause) =>
+                new ProviderAdapterRequestError({
+                  provider: PROVIDER,
+                  method: "session/commands.invoke",
+                  detail: "Failed to expand the selected Copilot skill.",
+                  cause,
+                }),
+            }).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("Copilot skill dispatch failed", { error }).pipe(
+                  Effect.as(promptText),
+                ),
+              ),
+            )
+          : promptText;
+
         const messageOptions: MessageOptions = {
-          prompt: promptText,
+          prompt: resolvedPromptText,
           ...(attachments.length > 0 ? { attachments } : {}),
           agentMode: input.interactionMode === "plan" ? "plan" : "interactive",
         };

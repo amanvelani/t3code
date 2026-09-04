@@ -241,12 +241,20 @@ export interface CopilotSdkClient {
   readonly listModels: Effect.Effect<ReadonlyArray<ModelInfo>, CopilotSdkError>;
   readonly getAuthStatus: Effect.Effect<GetAuthStatusResponse, CopilotSdkError>;
   readonly getStatus: Effect.Effect<GetStatusResponse, CopilotSdkError>;
+  readonly discoverSkills: (
+    cwd: string,
+  ) => Effect.Effect<CopilotSdkServerSkillList, CopilotSdkError>;
   readonly createSession: (config: SessionConfig) => Effect.Effect<CopilotSession, CopilotSdkError>;
   readonly resumeSession: (
     sessionId: string,
     config: ResumeSessionConfig,
   ) => Effect.Effect<CopilotSession, CopilotSdkError>;
 }
+
+export type CopilotSdkServerSkillList = Awaited<
+  ReturnType<CopilotClient["rpc"]["skills"]["discover"]>
+>;
+export type CopilotSdkServerSkill = CopilotSdkServerSkillList["skills"][number];
 
 export interface CopilotSdkClientInput {
   readonly binaryPath?: string | null;
@@ -314,6 +322,11 @@ export const makeCopilotSdkClient = (
         try: () => client.getStatus(),
         catch: toSdkError("getStatus"),
       }),
+      discoverSkills: (cwd) =>
+        Effect.tryPromise({
+          try: () => client.rpc.skills.discover({ projectPaths: [cwd] }),
+          catch: toSdkError("skills.discover"),
+        }),
       createSession: (config) =>
         Effect.tryPromise({
           try: () => openCopilotSdkSession(config, (initial) => client.createSession(initial)),
