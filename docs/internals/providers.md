@@ -33,6 +33,18 @@ model discovery comes from the SDK, including per-model reasoning-effort and lon
 capabilities. Turn cancellation and conversation rollback use the SDK session APIs (see
 `CopilotAdapter.ts`).
 
+## Runtime context
+
+Every adapter uses `apps/server/src/provider/RuntimeInstructions.ts` to identify T3 Code and
+the harness, and describe Markdown image/video embeds. Codex includes it in developer
+instructions; Claude appends it to its system preset; OpenCode sends it in each prompt's
+`system` field. Cursor, Grok, and Antigravity append a separate text block to ACP prompts,
+which have no system-message field. This does not change the stored user message.
+
+Per-turn context includes the current model when known. Codex includes reasoning effort;
+Grok includes it when explicitly selected for the turn. Claude's session-level context omits model and effort because they can
+change during a session. OpenCode variants are not assumed to be reasoning-effort levels.
+
 ## Codex async questions
 
 Codex 0.153 exposes `request_user_input_async` through `item/started` and `item/completed`
@@ -226,6 +238,10 @@ pickers. Empty managed profiles are supported. Do not describe prompt-time denia
 sandbox.
 
 ## OpenCode server ownership and catalog
+
+Native OpenCode event logs skip text deltas and running tool snapshots. Pending, completed,
+and failed tool states remain, including final output and errors. This filter does not change
+events sent to clients or orchestration storage.
 
 Each OpenCode provider instance owns one lazy local server for catalog discovery and
 text-generation helpers through [`OpenCodeServerOwner.ts`][opencode-server-owner]. Concurrent
