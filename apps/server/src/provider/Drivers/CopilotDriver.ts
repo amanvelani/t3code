@@ -42,11 +42,7 @@ import {
 } from "../ProviderDriver.ts";
 import type { ServerProviderDraft } from "../providerSnapshot.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
-import {
-  makeProviderMaintenanceCapabilities,
-  makeStaticProviderMaintenanceResolver,
-  resolveProviderMaintenanceCapabilitiesEffect,
-} from "../providerMaintenance.ts";
+import { makeProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
 import {
   haveProviderSnapshotSettingsChanged,
   makeProviderSnapshotSettingsSource,
@@ -57,15 +53,13 @@ const decodeCopilotSettings = Schema.decodeSync(CopilotSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("copilot");
 
-const UPDATE = makeStaticProviderMaintenanceResolver(
-  makeProviderMaintenanceCapabilities({
-    provider: DRIVER_KIND,
-    packageName: null,
-    updateExecutable: "copilot",
-    updateArgs: ["update"],
-    updateLockKey: "copilot-update",
-  }),
-);
+const MAINTENANCE_CAPABILITIES = makeProviderMaintenanceCapabilities({
+  provider: DRIVER_KIND,
+  packageName: null,
+  updateExecutable: "copilot",
+  updateArgs: ["update"],
+  updateLockKey: "copilot-update",
+});
 
 export type CopilotDriverEnv =
   | BackgroundPolicy.BackgroundPolicy
@@ -124,10 +118,6 @@ export const CopilotDriver: ProviderDriver<CopilotSettings, CopilotDriverEnv> = 
         ...config,
         enabled,
       } satisfies CopilotSettings;
-      const maintenanceCapabilities = yield* resolveProviderMaintenanceCapabilitiesEffect(UPDATE, {
-        binaryPath: effectiveConfig.binaryPath,
-        env: processEnv,
-      });
       // Remembers the last successfully discovered catalog so a status refresh
       // whose discovery fails/times out keeps showing the previous models.
       const discoveredModelsRef = yield* Ref.make<ReadonlyArray<ServerProviderModel>>([]);
@@ -149,7 +139,7 @@ export const CopilotDriver: ProviderDriver<CopilotSettings, CopilotDriverEnv> = 
 
       const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
       const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<CopilotSettings>>({
-        maintenanceCapabilities,
+        resolveMaintenance: () => Effect.succeed(MAINTENANCE_CAPABILITIES),
         getSettings: snapshotSettings.getSettings,
         streamSettings: snapshotSettings.streamSettings,
         haveSettingsChanged: haveProviderSnapshotSettingsChanged,
@@ -159,7 +149,7 @@ export const CopilotDriver: ProviderDriver<CopilotSettings, CopilotDriverEnv> = 
         enrichSnapshot: ({ settings, snapshot: currentSnapshot, publishSnapshot }) =>
           enrichCopilotSnapshot({
             snapshot: currentSnapshot,
-            maintenanceCapabilities,
+            maintenanceCapabilities: MAINTENANCE_CAPABILITIES,
             enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
             publishSnapshot,
             stampIdentity,
