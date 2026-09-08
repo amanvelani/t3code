@@ -1,3 +1,4 @@
+import { Spinner } from "~/components/ui/spinner";
 import type {
   EnvironmentId,
   PullRequestActor,
@@ -16,7 +17,6 @@ import {
   GitPullRequestClosedIcon,
   GitPullRequestDraftIcon,
   GitPullRequestIcon,
-  LoaderIcon,
   TriangleAlertIcon,
 } from "lucide-react";
 import { Children, isValidElement, type ReactNode, useEffect, useState } from "react";
@@ -122,7 +122,7 @@ export function PullRequestStateGlyph({
 }
 
 const CHECK_STATUS_PRESENTATION = {
-  pending: { label: "Running", Icon: LoaderIcon, toneClassName: "animate-spin text-amber-500" },
+  pending: { label: "Running", Icon: Spinner, toneClassName: "text-amber-500" },
   "action-required": {
     label: "Awaiting action",
     Icon: CircleDotIcon,
@@ -139,7 +139,7 @@ const CHECK_STATUS_PRESENTATION = {
   neutral: { label: "Neutral", Icon: CircleDashedIcon, toneClassName: "text-muted-foreground/70" },
 } as const satisfies Record<
   PullRequestCheckStatus,
-  { label: string; Icon: typeof CircleCheckIcon; toneClassName: string }
+  { label: string; Icon: typeof CircleCheckIcon | typeof Spinner; toneClassName: string }
 >;
 
 function isWorkflowApprovalCheck(check: Pick<PullRequestCheck, "status" | "url">): boolean {

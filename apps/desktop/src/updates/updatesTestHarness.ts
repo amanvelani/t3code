@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { DesktopUpdateState } from "@t3tools/contracts";
+import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -34,7 +35,30 @@ export interface UpdatesHarnessOptions {
   readonly env?: Record<string, string | undefined>;
 }
 
-export function makeHarness(options: UpdatesHarnessOptions = {}) {
+export interface UpdatesHarness {
+  readonly layer: Layer.Layer<
+    | DesktopUpdates.DesktopUpdates
+    | ElectronUpdater.ElectronUpdater
+    | ElectronWindow.ElectronWindow
+    | DesktopBackendPool.DesktopBackendPool
+    | DesktopEnvironment.DesktopEnvironment
+    | NodeServices.NodeServices
+    | DesktopAppSettings.DesktopAppSettings
+    | DesktopState.DesktopState,
+    Config.ConfigError
+  >;
+  readonly checkCount: () => number;
+  readonly quitAndInstalls: () => number;
+  readonly installSteps: ReadonlyArray<string>;
+  readonly downloadCount: () => number;
+  readonly feedUrls: () => ReadonlyArray<ElectronUpdater.ElectronUpdaterFeedUrl>;
+  readonly fullChangelog: () => boolean;
+  readonly listenerCount: () => number;
+  readonly sentStates: ReadonlyArray<DesktopUpdateState>;
+  readonly emit: (eventName: string, payload?: unknown) => void;
+}
+
+export function makeHarness(options: UpdatesHarnessOptions = {}): UpdatesHarness {
   let checkCount = 0;
   let quitAndInstallCount = 0;
   let downloadCount = 0;
@@ -111,6 +135,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     focusedMainOrFirst: Effect.succeed(Option.none()),
     setMain: () => Effect.void,
     clearMain: () => Effect.void,
+    prepareReveal: () => Effect.succeed(false),
     reveal: () => Effect.void,
     sendAll: (_channel, state) =>
       Effect.sync(() => {

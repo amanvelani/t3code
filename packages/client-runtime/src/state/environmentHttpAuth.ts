@@ -27,7 +27,7 @@ export interface EnvironmentHttpAuthHeaders {
  * per-request via `FetchHttpClient.RequestInit`, which the fetch client reads
  * from the fiber context at request time.
  */
-export const withEnvironmentCredentials = <A, E, R>(
+const withEnvironmentCredentials = <A, E, R>(
   authorization: PreparedHttpAuthorization | null,
   request: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E, R> =>
@@ -46,7 +46,7 @@ export const withEnvironmentCredentials = <A, E, R>(
  * for relay/DPoP connections, so bearer/primary connections work even when no
  * signer is available.
  */
-export const buildEnvironmentAuthHeaders = (
+const buildEnvironmentAuthHeaders = (
   authorization: PreparedHttpAuthorization | null,
   method: HttpMethod.HttpMethod,
   url: string,
@@ -96,6 +96,7 @@ export const executeAuthenticatedEnvironmentHttpRequest = Effect.fn(
   readonly request: (input: {
     readonly client: Effect.Success<ReturnType<typeof makeEnvironmentHttpApiClient>>;
     readonly headers: EnvironmentHttpAuthHeaders;
+    readonly requestUrl: string;
   }) => Effect.Effect<A, E, R>;
   /** Some endpoints report rejected credentials in a successful response. */
   readonly isUnauthorizedResponse?: (response: NoInfer<A>) => boolean;
@@ -142,7 +143,7 @@ export const executeAuthenticatedEnvironmentHttpRequest = Effect.fn(
       const result = yield* executeEnvironmentHttpRequest(
         requestUrl,
         input.timeoutMs,
-        withEnvironmentCredentials(authorization, input.request({ client, headers })),
+        withEnvironmentCredentials(authorization, input.request({ client, headers, requestUrl })),
       ).pipe(Effect.result);
 
       if (Result.isFailure(result)) {
