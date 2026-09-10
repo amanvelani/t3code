@@ -362,6 +362,8 @@ function modelState(): AcpSchema.SessionModelState {
   };
 }
 
+const emitAvailableCommands = process.env.T3_ACP_EMIT_AVAILABLE_COMMANDS === "1";
+
 const program = Effect.gen(function* () {
   const agent = yield* EffectAcpAgent.AcpAgent;
   const resumeRelease = yield* Deferred.make<void>();
@@ -433,6 +435,22 @@ const program = Effect.gen(function* () {
 
   yield* agent.handleCreateSession(() =>
     Effect.gen(function* () {
+      if (emitAvailableCommands) {
+        yield* agent.client.sessionUpdate({
+          sessionId,
+          update: {
+            sessionUpdate: "available_commands_update",
+            availableCommands: [
+              {
+                name: "research",
+                description: "Deep research on a topic",
+                input: { hint: "topic to research" },
+              },
+              { name: "plan", description: "Create an implementation plan" },
+            ],
+          },
+        });
+      }
       if (antigravityProfile) {
         yield* publishAntigravityCommands(sessionId);
       }

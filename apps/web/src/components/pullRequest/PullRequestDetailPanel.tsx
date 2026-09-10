@@ -2110,6 +2110,7 @@ export function PullRequestDetailPanel({
                   <span className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden text-xs text-muted-foreground">
                     <PullRequestActorLabel
                       actor={detail.author}
+                      environmentId={environmentId}
                       profileUrl={authorProfileUrl}
                       className="shrink-0 rounded-full"
                       labelClassName="sr-only"
@@ -2275,6 +2276,7 @@ export function PullRequestDetailPanel({
                   <PullRequestMetaLine className="min-w-0 whitespace-nowrap">
                     <PullRequestActorLabel
                       actor={detail.author}
+                      environmentId={environmentId}
                       profileUrl={authorProfileUrl}
                       className="font-medium"
                     />

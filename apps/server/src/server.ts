@@ -26,6 +26,8 @@ import { fixPath } from "./os-jank.ts";
 import { websocketRpcRouteLayer } from "./ws.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import { pullRequestHttpApiLayer } from "./pullRequest/http.ts";
+import * as AzureDevOpsAvatar from "./pullRequest/AzureDevOpsAvatar.ts";
+import * as AzureDevOpsAvatarHttp from "./pullRequest/AzureDevOpsAvatarHttp.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import { layerConfig as SqlitePersistenceLayerLive } from "./persistence/Layers/Sqlite.ts";
@@ -201,6 +203,8 @@ const BackgroundLayerLive = BackgroundPolicy.layer.pipe(
 );
 
 const UsageLayerLive = UsageService.layer.pipe(Layer.provide(ServerSettingsLayerLive));
+
+const AnalyticsLayerLive = AnalyticsService.layer.pipe(Layer.provide(ServerSettingsLayerLive));
 
 const ResourceDiagnosticsLayerLive = Layer.mergeAll(
   HostResources.layer,
@@ -525,7 +529,7 @@ const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(
   Layer.provideMerge(ResourceDiagnosticsLayerLive),
   Layer.provideMerge(UsageLayerLive),
   Layer.provideMerge(TraceDiagnostics.layer),
-  Layer.provideMerge(AnalyticsService.layer),
+  Layer.provideMerge(AnalyticsLayerLive),
   Layer.provideMerge(ExternalLauncher.layer),
   Layer.provideMerge(RemoteOpenTargets.layer),
   Layer.provideMerge(ServerLifecycleEvents.layer),
@@ -540,6 +544,14 @@ const commandReadinessLayer = HttpRouter.middleware(
   { global: true },
 );
 
+const AzureDevOpsAvatarLive = AzureDevOpsAvatar.layer.pipe(
+  Layer.provide(AzureDevOpsCli.layer),
+  Layer.provide(VcsProcess.layer),
+);
+
+const AzureDevOpsAvatarHttpLive = AzureDevOpsAvatarHttp.layer.pipe(
+  Layer.provide(AzureDevOpsAvatarLive),
+);
 export const makeRoutesLayer = Layer.mergeAll(
   Layer.mergeAll(
     HttpApiBuilder.layer(EnvironmentHttpApi).pipe(
@@ -552,6 +564,7 @@ export const makeRoutesLayer = Layer.mergeAll(
     ),
     otlpTracesProxyRouteLayer,
     assetRouteLayer,
+    AzureDevOpsAvatarHttpLive,
     attachmentUploadRouteLayer,
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,

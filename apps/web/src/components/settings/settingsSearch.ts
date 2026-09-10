@@ -221,6 +221,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["command menu dollar $ slash /"],
   },
   {
+    id: "telemetry",
+    title: "Share usage data",
+    to: "/settings/general",
+    searchTerms: ["telemetry analytics privacy posthog diagnostics"],
+  },
+  {
     id: "composer-collapse",
     title: "Collapse composer on scroll",
     to: "/settings/general",

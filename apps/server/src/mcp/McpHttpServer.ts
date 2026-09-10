@@ -14,8 +14,8 @@ import type * as Types from "effect/Types";
 import { McpProtocol, McpSchema, McpServer, Tool } from "effect/unstable/ai";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
-import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
+import { serverVersion } from "../version.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
@@ -445,7 +445,7 @@ export const PullRequestsToolkitRegistrationLive = McpServer.toolkit(PullRequest
 
 const McpTransportLive = McpServer.layerHttp({
   name: "T3 Code",
-  version: packageJson.version,
+  version: serverVersion,
   path: "/mcp",
   protocols: [McpProtocol.v2025_06_18],
 }).pipe(Layer.provide(McpAuthMiddlewareLive));

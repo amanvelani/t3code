@@ -2,6 +2,7 @@ import {
   AntigravitySettings,
   ClaudeSettings,
   CodexSettings,
+  CopilotSettings,
   CursorSettings,
   GrokSettings,
   OpenCodeSettings,
@@ -10,6 +11,7 @@ import {
 import type * as Schema from "effect/Schema";
 import {
   AntigravityIcon,
+  CopilotIcon,
   ClaudeAI,
   CursorIcon,
   GrokIcon,
@@ -69,6 +71,13 @@ const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = [
     icon: GrokIcon,
     badgeLabel: "Early Access",
     settingsSchema: GrokSettings,
+  },
+  {
+    value: ProviderDriverKind.make("copilot"),
+    label: "GitHub Copilot",
+    icon: CopilotIcon,
+    badgeLabel: "Preview",
+    settingsSchema: CopilotSettings,
   },
   {
     value: ProviderDriverKind.make("opencode"),

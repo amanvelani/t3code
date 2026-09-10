@@ -59,9 +59,10 @@ import Migration0044 from "./Migrations/044_ClearAutomaticProjectModelDefaults.t
 import Migration0045 from "./Migrations/045_ProjectionProjectsAutoPull.ts";
 import Migration0046 from "./Migrations/046_RepairAutomaticSettlementTimestamps.ts";
 import Migration0047 from "./Migrations/047_ProjectionProjectIcon.ts";
-import Migration0048 from "./Migrations/048_ProjectionThreadBranchPullRequest.ts";
-import Migration0049 from "./Migrations/049_ProjectionThreadsActiveOrderKey.ts";
-import Migration0050 from "./Migrations/050_ProjectionThreadPullRequests.ts";
+import Migration0048 from "./Migrations/048_RemoveAuthSessionIdentifyingMetadata.ts";
+import Migration0049 from "./Migrations/049_ProjectionThreadBranchPullRequest.ts";
+import Migration0050 from "./Migrations/050_ProjectionThreadsActiveOrderKey.ts";
+import Migration0051 from "./Migrations/051_ProjectionThreadPullRequests.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -121,9 +122,10 @@ const migrationEntries = [
   [45, "ProjectionProjectsAutoPull", Migration0045],
   [46, "RepairAutomaticSettlementTimestamps", Migration0046],
   [47, "ProjectionProjectIcon", Migration0047],
-  [48, "ProjectionThreadBranchPullRequest", Migration0048],
-  [49, "ProjectionThreadsActiveOrderKey", Migration0049],
-  [50, "ProjectionThreadPullRequests", Migration0050],
+  [48, "RemoveAuthSessionIdentifyingMetadata", Migration0048],
+  [49, "ProjectionThreadBranchPullRequest", Migration0049],
+  [50, "ProjectionThreadsActiveOrderKey", Migration0050],
+  [51, "ProjectionThreadPullRequests", Migration0051],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

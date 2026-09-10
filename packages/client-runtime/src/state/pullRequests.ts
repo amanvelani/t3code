@@ -18,6 +18,7 @@ import {
   createEnvironmentRpcSubscriptionAtomFamily,
   createEnvironmentQueryAtomFamily,
 } from "./runtime.ts";
+import { PullRequestAvatarLoader } from "./pullRequestAvatarHttp.ts";
 import { PullRequestDiffLoader } from "./pullRequestDiffHttp.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
@@ -28,6 +29,7 @@ export {
   PullRequestDiffLoader,
   pullRequestDiffLoaderLayer,
 } from "./pullRequestDiffHttp.ts";
+export { PullRequestAvatarLoader, pullRequestAvatarLoaderLayer } from "./pullRequestAvatarHttp.ts";
 
 /** @public Required to name the error in consumers' inferred pull request results. */
 export class EnvironmentHttpConnectionNotReadyError extends Data.TaggedError(
@@ -95,7 +97,10 @@ export function pullRequestDetailToVcsStatus(
  * pull request are order-sensitive, and the detail view refetches after each one.
  */
 export function createPullRequestEnvironmentAtoms<R, E>(
-  runtime: Atom.AtomRuntime<EnvironmentRegistry | PullRequestDiffLoader | R, E>,
+  runtime: Atom.AtomRuntime<
+    EnvironmentRegistry | PullRequestAvatarLoader | PullRequestDiffLoader | R,
+    E
+  >,
 ) {
   const refreshes = createPullRequestRefreshAtomFamily(runtime);
   const commandScheduler = createAtomCommandScheduler();
@@ -153,6 +158,22 @@ export function createPullRequestEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) =>
           JSON.stringify([environmentId, input.threadId, input.cursor]),
       },
+    }),
+    avatar: createEnvironmentQueryAtomFamily(runtime, {
+      label: "environment-data:pull-requests:avatar",
+      staleTimeMs: 60 * 60_000,
+      execute: (path: string) =>
+        Effect.gen(function* () {
+          const supervisor = yield* EnvironmentSupervisor;
+          const loader = yield* PullRequestAvatarLoader;
+          const prepared = yield* SubscriptionRef.get(supervisor.prepared);
+          if (Option.isNone(prepared)) {
+            return yield* new EnvironmentHttpConnectionNotReadyError({
+              message: "The environment HTTP connection is not ready.",
+            });
+          }
+          return yield* loader.load(prepared.value, path);
+        }),
     }),
     diff: createEnvironmentQueryAtomFamily(runtime, {
       label: "environment-data:pull-requests:diff",

@@ -23,6 +23,7 @@ import {
   createPullRequestEnvironmentAtoms,
   createPullRequestStackAtomFamily,
 } from "./pullRequests.ts";
+import { PullRequestAvatarLoader } from "./pullRequestAvatarHttp.ts";
 import { PullRequestDiffLoader } from "./pullRequestDiffHttp.ts";
 import { executeAtomQuery } from "./runtime.ts";
 
@@ -71,8 +72,12 @@ const makeTestRuntime = Effect.fn("makeTestRuntime")(function* (client: WsRpcPro
       Stream.provideService(stream, EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
   } as EnvironmentRegistry.EnvironmentRegistry["Service"]);
   const runtime = Atom.runtime(
-    Layer.merge(
+    Layer.mergeAll(
       Layer.succeed(EnvironmentRegistry.EnvironmentRegistry, environmentRegistry),
+      Layer.succeed(
+        PullRequestAvatarLoader,
+        PullRequestAvatarLoader.of({ load: () => Effect.die("unused") }),
+      ),
       Layer.succeed(
         PullRequestDiffLoader,
         PullRequestDiffLoader.of({ load: () => Effect.die("unused") }),

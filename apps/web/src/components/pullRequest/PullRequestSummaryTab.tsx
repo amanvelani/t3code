@@ -70,12 +70,18 @@ function reviewerKey(login: string): string {
 }
 
 /** The avatar carries the attribution alone; who it is arrives on hover, like the reviewer row. */
-function CommentAuthor({ actor }: { actor: PullRequestActor | null }) {
+function CommentAuthor({
+  actor,
+  environmentId,
+}: {
+  actor: PullRequestActor | null;
+  environmentId: EnvironmentId;
+}) {
   const login = actor?.login ?? "ghost";
   return (
     <Tooltip>
       <TooltipTrigger render={<span className="shrink-0 rounded-full" aria-label={login} />}>
-        <PullRequestActorAvatar actor={actor} />
+        <PullRequestActorAvatar actor={actor} environmentId={environmentId} />
       </TooltipTrigger>
       <TooltipPopup side="bottom">
         {actor?.name && actor.name !== login ? `${actor.name} (@${login})` : login}
@@ -157,12 +163,14 @@ function CommentBody({
 /** Finished work — a resolved conversation or a dismissed approval — opens collapsed. */
 function CollapsedComment({
   comment,
+  environmentId,
   editing,
   label,
   body,
   reactionBar,
 }: {
   comment: PullRequestComment;
+  environmentId: EnvironmentId;
   editing: CommentEditing;
   label: string;
   /** Null where the remark is nothing but its verdict, which a dismissal usually is. */
@@ -180,7 +188,7 @@ function CollapsedComment({
           )}
         >
           <span className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
-            <CommentAuthor actor={comment.author} />
+            <CommentAuthor actor={comment.author} environmentId={environmentId} />
             <span>{formatRelativeTimeLabel(comment.createdAt)}</span>
             <span>{label}</span>
           </span>
@@ -638,6 +646,7 @@ export function PullRequestSummaryTab({
                         >
                           <PullRequestActorLabel
                             actor={entry.actor}
+                            environmentId={environmentId}
                             tooltip={false}
                             className={cn(
                               "gap-0 [&>span:last-child]:sr-only",
@@ -886,6 +895,7 @@ export function PullRequestSummaryTab({
                       <CollapsedComment
                         key={comment.id}
                         comment={comment}
+                        environmentId={environmentId}
                         editing={commentEditing}
                         label={thread?.isResolved ? "Resolved" : "Approval dismissed"}
                         body={body}
@@ -939,7 +949,7 @@ export function PullRequestSummaryTab({
                     >
                       <div className="flex items-start gap-2">
                         <span className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
-                          <CommentAuthor actor={comment.author} />
+                          <CommentAuthor actor={comment.author} environmentId={environmentId} />
                           <span>{formatRelativeTimeLabel(comment.createdAt)}</span>
                           {outcome ? (
                             <PullRequestReviewOutcomeBadge outcome={outcome} />

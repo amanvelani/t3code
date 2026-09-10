@@ -5,18 +5,18 @@ import * as Layer from "effect/Layer";
 import * as Terminal from "effect/Terminal";
 import { Command, Flag, GlobalFlag, Prompt } from "effect/unstable/cli";
 
-import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
 import { compareExactServiceVersions } from "../cloud/serviceProtocol.ts";
 import type * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import { serverVersion } from "../version.ts";
 import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
 
 export const bootServiceLayer = (config: ServerConfig.ServerConfig["Service"]) =>
   BootService.layer({
     baseDir: config.baseDir,
     logsDir: config.logsDir,
-    cliVersion: packageJson.version,
+    cliVersion: serverVersion,
   }).pipe(Layer.provide(ProcessRunner.layer));
 
 export type ServiceReconcileResult =
@@ -42,11 +42,11 @@ export const reconcileService = Effect.fn("cli.service.reconcile")(function* (op
   if (
     status.installedVersion !== undefined &&
     options?.allowDowngrade !== true &&
-    compareExactServiceVersions(packageJson.version, status.installedVersion) < 0
+    compareExactServiceVersions(serverVersion, status.installedVersion) < 0
   ) {
     return yield* new BootService.BootServiceDowngradeRefusedError({
       installedVersion: status.installedVersion,
-      targetVersion: packageJson.version,
+      targetVersion: serverVersion,
     });
   }
   const plan = yield* service.install(options);
@@ -120,13 +120,11 @@ const serviceInstallCommand = Command.make("install", serviceReconcileFlags).pip
       Effect.gen(function* () {
         const result = yield* reconcileService({ allowDowngrade: flags.allowDowngrade });
         if (!result.changed) {
-          yield* Console.log(
-            `T3 Code service is already installed with t3@${packageJson.version}.`,
-          );
+          yield* Console.log(`T3 Code service is already installed with t3@${serverVersion}.`);
           return;
         }
         yield* Console.log(
-          `${result.previouslyInstalled ? "Updated" : "Installed"} T3 Code service with t3@${packageJson.version}.\nLogs: ${result.plan.logPath}`,
+          `${result.previouslyInstalled ? "Updated" : "Installed"} T3 Code service with t3@${serverVersion}.\nLogs: ${result.plan.logPath}`,
         );
       }),
     ),
@@ -143,11 +141,11 @@ const serviceUpdateCommand = Command.make("update", serviceReconcileFlags).pipe(
       Effect.gen(function* () {
         const result = yield* reconcileService({ allowDowngrade: flags.allowDowngrade });
         if (!result.changed) {
-          yield* Console.log(`T3 Code service is already using t3@${packageJson.version}.`);
+          yield* Console.log(`T3 Code service is already using t3@${serverVersion}.`);
           return;
         }
         yield* Console.log(
-          `${result.previouslyInstalled ? "Updated" : "Installed"} T3 Code service with t3@${packageJson.version}.\nLogs: ${result.plan.logPath}`,
+          `${result.previouslyInstalled ? "Updated" : "Installed"} T3 Code service with t3@${serverVersion}.\nLogs: ${result.plan.logPath}`,
         );
       }),
     ),
@@ -177,7 +175,7 @@ const serviceStatusCommand = Command.make("status", projectLocationFlags).pipe(
       flags,
       Effect.gen(function* () {
         const service = yield* BootService.BootService;
-        yield* Console.log(formatServiceStatus(yield* service.status, packageJson.version));
+        yield* Console.log(formatServiceStatus(yield* service.status, serverVersion));
       }),
     ),
   ),
@@ -200,7 +198,7 @@ export const offerServiceDuringOnboarding = Effect.gen(function* () {
   if (
     installed &&
     status.installedVersion !== undefined &&
-    compareExactServiceVersions(status.installedVersion, packageJson.version) > 0
+    compareExactServiceVersions(status.installedVersion, serverVersion) > 0
   ) {
     yield* Console.log(
       `A newer t3@${status.installedVersion} background service is installed. Leaving it unchanged.`,

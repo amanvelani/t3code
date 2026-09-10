@@ -1,11 +1,13 @@
 # Product analytics
 
-The server owns PostHog delivery, opt-out, and identity for every connected client.
-[Identity selection](../../apps/server/src/telemetry/Identify.ts) hashes an available
-provider account ID, falling back to an installation-scoped ID. This identity can
-span several clients; it does not identify a browser session. Clients do not load
-the PostHog browser SDK. Client-use events require an authenticated connection, so
-visiting the hosted app without connecting does not count as product use.
+The server owns PostHog delivery and identity, but sends product events only after a user opts in
+through **Settings → General → Share usage data**. The setting defaults to off. Until enabled, the
+server does not read or create a telemetry identifier, buffer events, or make PostHog requests.
+[Identity selection](../../apps/server/src/telemetry/Identify.ts) then hashes an available provider
+account ID, falling back to an installation-scoped ID. This identity can span several clients; it
+does not identify a browser session. Clients do not load the PostHog browser SDK. Client-use events
+require an authenticated connection, so visiting the hosted app without connecting does not count
+as product use.
 
 ## Attribution boundaries
 

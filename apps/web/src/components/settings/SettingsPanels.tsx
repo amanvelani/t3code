@@ -2395,6 +2395,28 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          {...searchableSetting("telemetry")}
+          description="Send usage events, a hashed account or installation identifier, and basic device information to the T3 Code maintainers."
+          resetAction={
+            settings.enableTelemetry !== DEFAULT_UNIFIED_SETTINGS.enableTelemetry ? (
+              <SettingResetButton
+                label="telemetry"
+                onClick={() =>
+                  updateSettings({ enableTelemetry: DEFAULT_UNIFIED_SETTINGS.enableTelemetry })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.enableTelemetry}
+              onCheckedChange={(checked) => updateSettings({ enableTelemetry: Boolean(checked) })}
+              aria-label="Share usage data"
+            />
+          }
+        />
+
+        <SettingsRow
           {...searchableSetting("composer-collapse")}
           description="Rest the composer of an existing thread into a single line when you scroll the conversation. Focus the composer or start typing to expand it again."
           resetAction={

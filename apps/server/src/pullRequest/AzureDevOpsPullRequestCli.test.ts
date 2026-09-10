@@ -56,6 +56,12 @@ function argsOfCall(index: number): ReadonlyArray<string> {
   return call[0].args;
 }
 
+function inputOfCall(index: number) {
+  const call = mockedExecute.mock.calls[index];
+  assert.isDefined(call);
+  return call[0];
+}
+
 afterEach(() => {
   mockedExecute.mockReset();
 });
@@ -516,7 +522,7 @@ layer("AzureDevOpsPullRequestCli.layer", (it) => {
     }),
   );
 
-  it.effect("reads the conversation through the REST API, pinned to a version", () =>
+  it.effect("reads the conversation through authenticated devops invoke arguments", () =>
     Effect.gen(function* () {
       mockedExecute.mockReturnValueOnce(
         Effect.succeed(
@@ -539,14 +545,51 @@ layer("AzureDevOpsPullRequestCli.layer", (it) => {
 
       const comments = yield* cli.listThreads({
         cwd: "/w",
-        threadsUrl: "https://dev.azure.com/acme/platform/_apis/git/r/web/pullRequests/42/threads",
+        organization: "https://dev.azure.com/acme",
+        project: "platform",
+        repository: "6f9c9b7f-0000-0000-0000-000000000000",
+        pullRequestId: 42,
       });
 
       assert.strictEqual(comments.length, 1);
-      expect(argsOfCall(0)).toContain("rest");
-      expect(argsOfCall(0)).toContain(
-        "https://dev.azure.com/acme/platform/_apis/git/r/web/pullRequests/42/threads?api-version=7.1",
+      expect(argsOfCall(0)).toEqual([
+        "devops",
+        "invoke",
+        "--area",
+        "git",
+        "--resource",
+        "pullRequestThreads",
+        "--route-parameters",
+        "project=platform",
+        "repositoryId=6f9c9b7f-0000-0000-0000-000000000000",
+        "pullRequestId=42",
+        "--organization",
+        "https://dev.azure.com/acme",
+        "--api-version",
+        "7.1",
+        "--only-show-errors",
+        "--output",
+        "json",
+      ]);
+    }),
+  );
+
+  it.effect("propagates an unreadable thread response", () =>
+    Effect.gen(function* () {
+      mockedExecute.mockReturnValueOnce(Effect.succeed(output("<html>sign in</html>")));
+      const cli = yield* AzureDevOpsPullRequestCli.AzureDevOpsPullRequestCli;
+
+      const error = yield* Effect.flip(
+        cli.listThreads({
+          cwd: "/w",
+          organization: "https://dev.azure.com/acme",
+          project: "platform",
+          repository: "web",
+          pullRequestId: 42,
+        }),
       );
+
+      assert.strictEqual(error._tag, "AzureDevOpsPullRequestReadError");
     }),
   );
 

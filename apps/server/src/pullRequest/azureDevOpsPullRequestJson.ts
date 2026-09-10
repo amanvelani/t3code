@@ -13,7 +13,7 @@ import { TrimmedNonEmptyString } from "@t3tools/contracts";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 
 import {
-  azureDevOpsOrganizationBaseFromRestApiUrl,
+  azureDevOpsOrganizationFromRestApiUrl,
   azureDevOpsPullRequestWebUrl,
 } from "../sourceControl/azureDevOpsPullRequests.ts";
 
@@ -24,6 +24,10 @@ import {
  * depending on the command.
  */
 const RawIdentitySchema = Schema.Struct({
+  /** Azure's storage key, usable to resolve a graph descriptor for its protected avatar. */
+  id: Schema.optional(Schema.NullOr(Schema.String)),
+  /** The graph descriptor can address the protected avatar directly when Azure includes it. */
+  descriptor: Schema.optional(Schema.NullOr(Schema.String)),
   displayName: Schema.optional(Schema.NullOr(Schema.String)),
   /** An email or UPN, which is what `az account show` reports for the signed-in user. */
   uniqueName: Schema.optional(Schema.NullOr(Schema.String)),
@@ -64,6 +68,7 @@ const RawPullRequestSchema = Schema.Struct({
   repository: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
+        id: Schema.optional(Schema.NullOr(Schema.String)),
         name: Schema.optional(Schema.NullOr(Schema.String)),
         webUrl: Schema.optional(Schema.NullOr(Schema.String)),
         project: Schema.optional(
@@ -137,8 +142,13 @@ export interface AzureDevOpsPullRequest {
   readonly body: string;
   readonly reviewRequestLogins: ReadonlyArray<string>;
   readonly reviewers: ReadonlyArray<PullRequestActor>;
-  /** Where this pull request's threads live, when Azure said enough to work it out. */
-  readonly threadsUrl: string | null;
+  /** Structured route values for the pull request's thread collection. */
+  readonly threadsRoute: {
+    readonly organization: string;
+    readonly project: string;
+    readonly repository: string;
+    readonly pullRequestId: number;
+  } | null;
   /** Whether Azure is set to complete this on its own once its policies pass. */
   readonly autoMergeEnabled: boolean;
   /** The completion strategy Azure stored with auto-complete, where it reported one. */
@@ -155,11 +165,25 @@ function normalizeRefName(refName: string): string {
 }
 
 /** A login has to compare against `az account show`, which reports an email. */
-function toActor(raw: Schema.Schema.Type<typeof RawIdentitySchema> | null | undefined) {
+function toActor(
+  raw: Schema.Schema.Type<typeof RawIdentitySchema> | null | undefined,
+  organization: ReturnType<typeof azureDevOpsOrganizationFromRestApiUrl>,
+) {
   const login = trimmed(raw?.uniqueName) ?? trimmed(raw?.displayName);
+  const descriptor = trimmed(raw?.descriptor);
+  const identity = descriptor ?? trimmed(raw?.id);
   return login === null
     ? null
-    : { login, name: trimmed(raw?.displayName), avatarUrl: trimmed(raw?.imageUrl) };
+    : {
+        login,
+        name: trimmed(raw?.displayName),
+        // Azure's imageUrl is protected and cannot use the server's CLI authentication in a
+        // browser. Carry only an identity into the narrow T3 proxy route instead.
+        avatarUrl:
+          organization === null || identity === null
+            ? null
+            : `/api/pull-requests/azure-avatars/${organization.route}/${encodeURIComponent(organization.name)}/${descriptor === null ? "id" : "descriptor"}/${encodeURIComponent(identity)}`,
+      };
 }
 
 function toState(raw: Schema.Schema.Type<typeof RawPullRequestSchema>): PullRequestState {
@@ -191,12 +215,12 @@ function toMergeability(value: string | null | undefined): PullRequestMergeabili
  * The REST collection a pull request's threads hang from. Built from what Azure returned rather
  * than from the local remote, whose shape differs between the modern, legacy and SSH forms.
  */
-function toThreadsUrl(raw: Schema.Schema.Type<typeof RawPullRequestSchema>): string | null {
-  const base = azureDevOpsOrganizationBaseFromRestApiUrl(raw.url);
+function toThreadsRoute(raw: Schema.Schema.Type<typeof RawPullRequestSchema>) {
+  const organization = azureDevOpsOrganizationFromRestApiUrl(raw.url);
   const project = trimmed(raw.repository?.project?.name);
-  const repository = trimmed(raw.repository?.name);
-  if (base === null || project === null || repository === null) return null;
-  return `${base}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repository)}/pullRequests/${raw.pullRequestId}/threads`;
+  const repository = trimmed(raw.repository?.id) ?? trimmed(raw.repository?.name);
+  if (organization === null || project === null || repository === null) return null;
+  return { organization: organization.url, project, repository, pullRequestId: raw.pullRequestId };
 }
 
 function toAutoMergeMethod(
@@ -224,9 +248,10 @@ function toAutoMergeMethod(
 function toPullRequest(
   raw: Schema.Schema.Type<typeof RawPullRequestSchema>,
 ): AzureDevOpsPullRequest | null {
+  const organization = azureDevOpsOrganizationFromRestApiUrl(raw.url);
   const autoMergeMethod = toAutoMergeMethod(raw);
   const reviewers = (raw.reviewers ?? []).flatMap((reviewer) => {
-    const actor = toActor(reviewer);
+    const actor = toActor(reviewer, organization);
     return actor === null ? [] : [actor];
   });
   const closedAt = trimmed(raw.closedDate);
@@ -247,7 +272,7 @@ function toPullRequest(
     number: raw.pullRequestId,
     title: raw.title,
     url,
-    author: toActor(raw.createdBy),
+    author: toActor(raw.createdBy, organization),
     headBranch,
     baseBranch,
     state: toState(raw),
@@ -259,7 +284,7 @@ function toPullRequest(
     body: raw.description ?? "",
     reviewRequestLogins: reviewers.map((reviewer) => reviewer.login),
     reviewers,
-    threadsUrl: toThreadsUrl(raw),
+    threadsRoute: toThreadsRoute(raw),
     autoMergeEnabled: (raw.autoCompleteSetBy ?? null) !== null,
     ...(autoMergeMethod === undefined ? {} : { autoMergeMethod }),
   };
@@ -332,7 +357,11 @@ export function decodeViewerJson(raw: string): Result.Result<string | null, Deco
  */
 export function decodeThreadsJson(
   raw: string,
+  organizationUrl: string | null = null,
 ): Result.Result<ReadonlyArray<PullRequestComment>, DecodeFailure> {
+  const organization = azureDevOpsOrganizationFromRestApiUrl(
+    organizationUrl === null ? null : `${organizationUrl}/_apis/placeholder`,
+  );
   const decoded = decodeThreadPage(raw);
   if (!Result.isSuccess(decoded)) {
     return Result.fail(decoded.failure);
@@ -357,7 +386,7 @@ export function decodeThreadsJson(
       comments.push({
         id: `${thread.id}:${comment.id ?? 0}`,
         kind: path === null ? "issue-comment" : "review-comment",
-        author: toActor(comment.author),
+        author: toActor(comment.author, organization),
         body: comment.content ?? "",
         createdAt: publishedDate,
         url: null,

@@ -265,7 +265,11 @@ export function ReviewThreadCard({
             {comments.map((comment) => (
               <article key={comment.id} className="group min-w-0">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <PullRequestActorLabel actor={comment.author} className="text-foreground" />
+                  <PullRequestActorLabel
+                    actor={comment.author}
+                    environmentId={environmentId}
+                    className="text-foreground"
+                  />
                   <span>{formatRelativeTimeLabel(comment.createdAt)}</span>
                 </div>
                 {editingId === comment.id ? (

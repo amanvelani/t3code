@@ -6,6 +6,7 @@ import {
   ClientSettingsSchema,
   ClientSettingsPatch,
   ClaudeSettings,
+  CopilotSettings,
   DEFAULT_SERVER_SETTINGS,
   resolveProviderInstanceEnabled,
   ServerSettings,
@@ -19,6 +20,21 @@ const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
+const decodeCopilotSettings = Schema.decodeUnknownSync(CopilotSettings);
+
+describe("CopilotSettings experimental mode", () => {
+  it("defaults experimental features off", () => {
+    expect(decodeCopilotSettings({}).enableExperimentalMode).toBe(false);
+  });
+
+  it("accepts an experimental-mode opt-in through the server settings patch", () => {
+    expect(
+      decodeServerSettingsPatch({
+        providers: { copilot: { enableExperimentalMode: true } },
+      }),
+    ).toMatchObject({ providers: { copilot: { enableExperimentalMode: true } } });
+  });
+});
 
 describe("ServerSettings usage price overrides", () => {
   const prices = { inputCostPerMillionTokens: 2, outputCostPerMillionTokens: 8 };
@@ -181,6 +197,14 @@ describe("ClientSettings word wrap", () => {
     expect(decoded.wordWrap).toBe(true);
     expect(decoded).not.toHaveProperty("chatWordWrap");
     expect(decoded).not.toHaveProperty("diffWordWrap");
+  });
+});
+
+describe("ServerSettings telemetry", () => {
+  it("defaults telemetry off and accepts explicit opt-in patches", () => {
+    expect(DEFAULT_SERVER_SETTINGS.enableTelemetry).toBe(false);
+    expect(decodeServerSettings({}).enableTelemetry).toBe(false);
+    expect(decodeServerSettingsPatch({ enableTelemetry: true }).enableTelemetry).toBe(true);
   });
 });
 

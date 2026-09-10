@@ -2395,6 +2395,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             Layer.updateService(ChildProcessSpawner.ChildProcessSpawner, (spawner) =>
               ChildProcessSpawner.make((command) => {
                 if (command._tag !== "StandardCommand") return spawner.spawn(command);
+                if (command.command !== firstMissing && command.command !== secondMissing) {
+                  return spawner.spawn(command);
+                }
                 spawnedCommands.push(command.command);
                 const beforeSpawn =
                   command.command === secondMissing
@@ -2614,6 +2617,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                 "antigravity",
                 "claudeAgent",
                 "codex",
+                "copilot",
                 "cursor",
                 "grok",
                 "opencode",

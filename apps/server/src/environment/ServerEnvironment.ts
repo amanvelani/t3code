@@ -12,13 +12,13 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import packageJson from "../../package.json" with { type: "json" };
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { readAgentActivityPublishingActive } from "../cloud/config.ts";
 import { resolveServerSelfUpdateCapability } from "../cloud/selfUpdate.ts";
 import { resolveServiceLauncherMode } from "../cloud/serviceLauncherClient.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import { serverVersion } from "../version.ts";
 import { resolveServerEnvironmentLabel } from "./ServerEnvironmentLabel.ts";
 import { detectServerEnvironmentMachineKind } from "./ServerEnvironmentMachine.ts";
 
@@ -211,7 +211,7 @@ export const make = Effect.gen(function* () {
       arch: platformArch(hostArchitecture),
       ...(machine === null ? {} : { machine }),
     },
-    serverVersion: packageJson.version,
+    serverVersion,
     capabilities: {
       repositoryIdentity: true,
       connectionProbe: true,
