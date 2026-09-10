@@ -601,7 +601,7 @@ ${this.output}`;
   }
 }
 
-export class PackagedServerVersionMismatchError extends Schema.TaggedErrorClass<PackagedServerVersionMismatchError>()(
+export class PackagedServerVersionMismatchError extends Schema.TaggedError<PackagedServerVersionMismatchError>()(
   "PackagedServerVersionMismatchError",
   {
     expectedVersion: Schema.String,
@@ -613,7 +613,7 @@ export class PackagedServerVersionMismatchError extends Schema.TaggedErrorClass<
   }
 }
 
-export class InlinedNativePackageError extends Schema.TaggedErrorClass<InlinedNativePackageError>()(
+export class InlinedNativePackageError extends Schema.TaggedError<InlinedNativePackageError>()(
   "InlinedNativePackageError",
   { packages: Schema.Array(Schema.String) },
 ) {

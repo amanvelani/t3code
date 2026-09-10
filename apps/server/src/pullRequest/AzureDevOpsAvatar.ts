@@ -31,7 +31,7 @@ export interface AzureDevOpsAvatarImage {
   readonly contentType: "image/png";
 }
 
-export class AzureDevOpsAvatarError extends Schema.TaggedErrorClass<AzureDevOpsAvatarError>()(
+export class AzureDevOpsAvatarError extends Schema.TaggedError<AzureDevOpsAvatarError>()(
   "AzureDevOpsAvatarError",
   {
     reason: Schema.Literals(["invalid-response", "too-large", "unsupported-content-type"]),

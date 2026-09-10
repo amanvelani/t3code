@@ -55,7 +55,7 @@ export async function openCopilotSdkSession<T extends SessionConfig | ResumeSess
   }
 }
 
-export class CopilotSdkError extends Schema.TaggedErrorClass<CopilotSdkError>()("CopilotSdkError", {
+export class CopilotSdkError extends Schema.TaggedError<CopilotSdkError>()("CopilotSdkError", {
   operation: Schema.String,
   cause: Schema.optional(Schema.Defect()),
 }) {
