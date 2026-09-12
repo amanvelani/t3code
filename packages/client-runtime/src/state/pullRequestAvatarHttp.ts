@@ -32,6 +32,7 @@ export const fetchEnvironmentPullRequestAvatar = Effect.fn(
     return yield* invalidAvatarResponse("Invalid Azure avatar path.");
   }
   return yield* executeAuthenticatedEnvironmentHttpRequest({
+    group: "pullRequests",
     prepared: input.prepared,
     signer: input.signer,
     ...(input.remoteAuthorization === undefined

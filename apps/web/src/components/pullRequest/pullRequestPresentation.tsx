@@ -18,6 +18,7 @@ import {
   GitPullRequestDraftIcon,
   GitPullRequestIcon,
   TriangleAlertIcon,
+  UserCheckIcon,
 } from "lucide-react";
 import { Children, isValidElement, type ReactNode, useEffect, useState } from "react";
 
@@ -33,6 +34,21 @@ interface StatePresentation {
   readonly label: string;
   readonly toneClassName: string;
   readonly Icon: typeof GitPullRequestIcon;
+}
+
+export function PullRequestApprovalGlyph() {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
+        <UserCheckIcon
+          aria-hidden
+          className={cn("size-3.5", CHECK_STATUS_PRESENTATION.success.toneClassName)}
+        />
+        <span className="sr-only">Approved</span>
+      </TooltipTrigger>
+      <TooltipPopup>Approved</TooltipPopup>
+    </Tooltip>
+  );
 }
 
 /**
@@ -176,7 +192,7 @@ const CHECKS_STATE_PRESENTATION = {
   passing: {
     label: "All checks have passed",
     Icon: CircleCheckIcon,
-    toneClassName: "text-emerald-600 dark:text-emerald-300/90",
+    toneClassName: CHECK_STATUS_PRESENTATION.success.toneClassName,
   },
   failing: {
     label: "Some checks were not successful",
