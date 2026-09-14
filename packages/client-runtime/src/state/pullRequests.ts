@@ -22,6 +22,7 @@ import {
   createEnvironmentQueryAtomFamily,
 } from "./runtime.ts";
 import { PullRequestAvatarLoader } from "./pullRequestAvatarHttp.ts";
+import { createPullRequestRouter } from "./pullRequestRouting.ts";
 import { PullRequestDiffLoader } from "./pullRequestDiffHttp.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
@@ -101,9 +102,11 @@ export function createLinkedPullRequestSummaryAtomFamily<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
   refreshes = createPullRequestRefreshAtomFamily(runtime),
 ) {
+  const routedRequest = createPullRequestRouter();
   return createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:pull-requests:linked-summary",
     tag: WS_METHODS.pullRequestsSummary,
+    execute: (input) => routedRequest(WS_METHODS.pullRequestsSummary, input),
     staleTimeMs: 60_000,
     refreshIntervalMs: 60_000,
     idleTtlMs: LINKED_PULL_REQUEST_IDLE_TTL_MS,
@@ -116,9 +119,11 @@ export function createPullRequestStackAtomFamily<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
   refreshes = createPullRequestRefreshAtomFamily(runtime),
 ) {
+  const routedRequest = createPullRequestRouter();
   return createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:pull-requests:stack",
     tag: WS_METHODS.pullRequestsStack,
+    execute: (input) => routedRequest(WS_METHODS.pullRequestsStack, input),
     staleTimeMs: 60_000,
     idleTtlMs: LINKED_PULL_REQUEST_IDLE_TTL_MS,
     refreshTrigger: ({ environmentId }) => refreshes({ environmentId, input: {} }),
@@ -153,6 +158,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
 ) {
   const refreshes = createPullRequestRefreshAtomFamily(runtime);
   const commandScheduler = createAtomCommandScheduler();
+  const routedRequest = createPullRequestRouter();
   const serialPerEnvironment = {
     mode: "serial",
     key: ({ environmentId }: { readonly environmentId: string }) => environmentId,
@@ -161,6 +167,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
     createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:pull-requests:activity",
       tag: WS_METHODS.pullRequestsActivity,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsActivity, input),
       staleTimeMs: 60_000,
       refreshTrigger: ({ environmentId }) => refreshes({ environmentId, input: {} }),
     }),
@@ -169,6 +176,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
     createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:pull-requests:detail",
       tag: WS_METHODS.pullRequestsDetail,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsDetail, input),
       staleTimeMs: 60_000,
       refreshTrigger: ({ environmentId }) => refreshes({ environmentId, input: {} }),
     }),
@@ -177,6 +185,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
     createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:pull-requests:label-candidates",
       tag: WS_METHODS.pullRequestsLabelCandidates,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsLabelCandidates, input),
       staleTimeMs: 60_000,
     }),
   );
@@ -184,6 +193,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
     createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:pull-requests:reviewer-candidates",
       tag: WS_METHODS.pullRequestsReviewerCandidates,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsReviewerCandidates, input),
       staleTimeMs: 60_000,
     }),
   );
@@ -220,6 +230,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
     threadComments: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:thread-comments",
       tag: WS_METHODS.pullRequestsThreadComments,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsThreadComments, input),
       scheduler: commandScheduler,
       concurrency: {
         mode: "singleFlight",
@@ -262,6 +273,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
     diffFileContents: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:diff-file-contents",
       tag: WS_METHODS.pullRequestsDiffFileContents,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsDiffFileContents, input),
       scheduler: commandScheduler,
       concurrency: {
         mode: "singleFlight",
@@ -282,24 +294,28 @@ export function createPullRequestEnvironmentAtoms<R, E>(
     runAction: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:run-action",
       tag: WS_METHODS.pullRequestsRunAction,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsRunAction, input),
       scheduler: commandScheduler,
       concurrency: serialPerEnvironment,
     }),
     update: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:update",
       tag: WS_METHODS.pullRequestsUpdate,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsUpdate, input),
       scheduler: commandScheduler,
       concurrency: serialPerEnvironment,
     }),
     comment: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:comment",
       tag: WS_METHODS.pullRequestsComment,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsComment, input),
       scheduler: commandScheduler,
       concurrency: serialPerEnvironment,
     }),
     updateComment: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:update-comment",
       tag: WS_METHODS.pullRequestsUpdateComment,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsUpdateComment, input),
       scheduler: commandScheduler,
       concurrency: serialPerEnvironment,
       onSuccess: ({ environmentId, input: { projectId, host, repository, number } }, registry) =>
@@ -315,12 +331,14 @@ export function createPullRequestEnvironmentAtoms<R, E>(
     submitReview: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:submit-review",
       tag: WS_METHODS.pullRequestsSubmitReview,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsSubmitReview, input),
       scheduler: commandScheduler,
       concurrency: serialPerEnvironment,
     }),
     replyToThread: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:reply-to-thread",
       tag: WS_METHODS.pullRequestsReplyToThread,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsReplyToThread, input),
       scheduler: commandScheduler,
       concurrency: serialPerEnvironment,
     }),
@@ -334,6 +352,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
     requestReviewers: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:request-reviewers",
       tag: WS_METHODS.pullRequestsRequestReviewers,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsRequestReviewers, input),
       scheduler: commandScheduler,
       concurrency: serialPerEnvironment,
       onSuccess: (target, registry) =>
@@ -410,6 +429,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
     setLabels: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:set-labels",
       tag: WS_METHODS.pullRequestsSetLabels,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsSetLabels, input),
       scheduler: commandScheduler,
       concurrency: serialPerEnvironment,
       onSuccess: (target, registry) =>
@@ -445,12 +465,14 @@ export function createPullRequestEnvironmentAtoms<R, E>(
     setThreadResolution: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:set-thread-resolution",
       tag: WS_METHODS.pullRequestsSetThreadResolution,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsSetThreadResolution, input),
       scheduler: commandScheduler,
       concurrency: serialPerEnvironment,
     }),
     setReaction: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:set-reaction",
       tag: WS_METHODS.pullRequestsSetReaction,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsSetReaction, input),
       scheduler: commandScheduler,
       concurrency: serialPerEnvironment,
     }),
@@ -462,6 +484,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
     invalidate: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:invalidate",
       tag: WS_METHODS.pullRequestsInvalidate,
+      execute: (input) => routedRequest(WS_METHODS.pullRequestsInvalidate, input),
       scheduler: commandScheduler,
       concurrency: serialPerEnvironment,
     }),
