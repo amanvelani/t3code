@@ -38,11 +38,11 @@ jobs:
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
           echo "release_name=T3 Code v$version (Windows/macOS)" >> "$GITHUB_OUTPUT"
 
-  build_wsl_node_pty:
-    name: Build WSL node-pty (linux-x64)
+  build_wsl_runtime:
+    name: Build WSL runtime (linux-x64)
     needs: [resolve]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -58,34 +58,62 @@ jobs:
         with:
           node-version-file: package.json
           cache: true
-          run-install: |
-            args:
-              - --filter=t3...
+          run-install: false
 
-      - name: Build node-pty linux-x64 prebuild
+      - name: Install CLI archive dependencies
+        run: vp install --filter=t3... --filter=@t3tools/scripts...
+
+      - name: Align package versions to release version
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        run: node scripts/update-release-package-versions.ts "$RELEASE_VERSION"
+
+      - name: Build server and web client
+        run: vp run --filter t3 build
+
+      - name: Build CLI single-executable
         shell: bash
+        env:
+          VP_NODE_VERSION: "26.8.2"
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Build resource monitor
+        run: cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml --target x86_64-unknown-linux-gnu
+
+      - name: Build Linux CLI archive for WSL
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          pty_pkg="$(node -e "console.log(require.resolve('node-pty/package.json', { paths: ['$GITHUB_WORKSPACE/apps/server'] }))")"
-          pty_dir="$(dirname "$pty_pkg")"
-          (
-            cd "$pty_dir"
-            npx --yes node-gyp rebuild
-          )
-          mkdir -p wsl-prebuild
-          cp "$pty_dir/build/Release/pty.node" wsl-prebuild/pty.node
-          file wsl-prebuild/pty.node
+          resource_dir="$RUNNER_TEMP/cli-resource-monitor/linux-x64"
+          mkdir -p "$resource_dir"
+          cp native/resource-monitor/target/x86_64-unknown-linux-gnu/release/t3-resource-monitor "$resource_dir/t3-resource-monitor"
+          node scripts/build-cli-archive.ts \
+            --platform linux \
+            --arch x64 \
+            --version "$RELEASE_VERSION" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --output-dir release-cli
 
-      - name: Upload node-pty linux-x64 prebuild
+      - name: Smoke-test WSL runtime archive
+        run: node scripts/smoke-cli-archive.ts --archive release-cli/* --expect-version "${{ needs.resolve.outputs.version }}"
+
+      - name: Upload WSL runtime archive
         uses: actions/upload-artifact@v7
         with:
-          name: wsl-node-pty-x64
-          path: wsl-prebuild/pty.node
+          name: cli-linux-x64
+          path: release-cli/*
           if-no-files-found: error
 
   build:
     name: Build ${{ matrix.label }}
-    needs: [resolve, build_wsl_node_pty]
+    needs: [resolve, build_wsl_runtime]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
@@ -164,12 +192,12 @@ jobs:
           RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
         run: node scripts/update-release-package-versions.ts "$RELEASE_VERSION"
 
-      - name: Download WSL node-pty prebuild
+      - name: Download Linux CLI archive for WSL
         if: matrix.platform == 'win'
         uses: actions/download-artifact@v7
         with:
-          name: wsl-node-pty-x64
-          path: wsl-prebuild
+          name: cli-linux-x64
+          path: wsl-runtime
 
       - name: Build desktop artifact
         shell: bash
@@ -187,7 +215,7 @@ jobs:
           )
 
           if [[ "${{ matrix.platform }}" == "win" ]]; then
-            args+=(--wsl-prebuild "$GITHUB_WORKSPACE/wsl-prebuild/pty.node")
+            args+=(--wsl-runtime "$GITHUB_WORKSPACE"/wsl-runtime/t3-*-linux-x64.tar.gz)
           fi
 
           vp run dist:desktop:artifact "${args[@]}"
