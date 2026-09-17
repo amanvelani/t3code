@@ -364,6 +364,20 @@ export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMod
   });
 }
 
+export function resolveSidebarBrandingVisible(input: {
+  showSidebarBranding: boolean;
+  settingsHydrated: boolean;
+}): boolean {
+  return input.settingsHydrated && input.showSidebarBranding;
+}
+
+export function useSidebarBrandingVisible(): boolean {
+  return resolveSidebarBrandingVisible({
+    showSidebarBranding: useClientSettingsValue().showSidebarBranding,
+    settingsHydrated: useClientSettingsHydrated(),
+  });
+}
+
 /**
  * Whether the legacy sidebar (Settings → General → Legacy features) replaces
  * the default one.

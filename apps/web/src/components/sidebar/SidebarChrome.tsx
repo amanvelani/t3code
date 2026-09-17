@@ -3,7 +3,10 @@ import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
-import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
+import {
+  useEnvironmentIdentificationMode,
+  useSidebarBrandingVisible,
+} from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
 import { T3Wordmark } from "../T3Wordmark";
@@ -37,6 +40,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
 }) {
   const stageLabel = useEnvironmentStageLabel();
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
+  const sidebarBrandingVisible = useSidebarBrandingVisible();
   const backdropVariant = resolveSidebarStageBackdropVariant(
     stageLabel,
     environmentIdentificationMode === "artwork",
@@ -62,7 +66,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           backdropVariant && resolveSidebarStageFocusRingOffsetClass(backdropVariant),
         )}
       />
-      <SidebarBrand onBackdrop={backdropVariant !== null} />
+      <SidebarBrand onBackdrop={backdropVariant !== null} visible={sidebarBrandingVisible} />
       {pillLabel ? (
         <Badge
           className="relative z-10 ml-1 hidden rounded-full px-1.5 text-muted-foreground @[15rem]/sidebar-header:inline-flex"
@@ -77,7 +81,15 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   );
 });
 
-function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
+function SidebarBrand({ onBackdrop, visible }: { onBackdrop: boolean; visible: boolean }) {
+  if (!visible) {
+    return (
+      <span
+        aria-hidden
+        className="relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden md:block"
+      />
+    );
+  }
   return (
     <Link
       aria-label="Go to threads"

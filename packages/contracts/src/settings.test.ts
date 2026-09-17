@@ -566,6 +566,14 @@ describe("ClientSettings sidebar", () => {
     expect(decodeClientSettings({}).legacySidebarEnabled).toBe(false);
   });
 
+  it("shows sidebar branding by default and preserves an explicit opt-out", () => {
+    expect(decodeClientSettings({}).showSidebarBranding).toBe(true);
+    expect(decodeClientSettings({ showSidebarBranding: false }).showSidebarBranding).toBe(false);
+    expect(decodeClientSettingsPatch({ showSidebarBranding: false }).showSidebarBranding).toBe(
+      false,
+    );
+  });
+
   it("drops the retired sidebar v2 beta keys, resetting everyone to the default", () => {
     const decoded = decodeClientSettings({
       sidebarV2Enabled: false,

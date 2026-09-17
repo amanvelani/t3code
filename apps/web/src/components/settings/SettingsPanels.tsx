@@ -538,6 +538,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode
         ? ["Environment identification"]
         : []),
+      ...(settings.showSidebarBranding !== DEFAULT_UNIFIED_SETTINGS.showSidebarBranding
+        ? ["T3 Code badge"]
+        : []),
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
@@ -655,6 +658,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffLayout,
       settings.proactivePanelsEnabled,
       settings.environmentIdentificationMode,
+      settings.showSidebarBranding,
       settings.contextWindowMeterEnabled,
       settings.fontFamilyCode,
       settings.fontFamilyComposer,
@@ -764,6 +768,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
+      showSidebarBranding: DEFAULT_UNIFIED_SETTINGS.showSidebarBranding,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
@@ -1193,6 +1198,32 @@ export function AppearanceSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection id="appearance-interface" title="Interface">
+        <SettingsRow
+          {...searchableSetting("sidebar-branding")}
+          description="Show the T3 Code wordmark in the top-left corner of the sidebar."
+          resetAction={
+            settings.showSidebarBranding !== DEFAULT_UNIFIED_SETTINGS.showSidebarBranding ? (
+              <SettingResetButton
+                label="T3 Code badge"
+                onClick={() =>
+                  updateSettings({
+                    showSidebarBranding: DEFAULT_UNIFIED_SETTINGS.showSidebarBranding,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.showSidebarBranding}
+              onCheckedChange={(checked) =>
+                updateSettings({ showSidebarBranding: Boolean(checked) })
+              }
+              aria-label="Show T3 Code badge"
+            />
+          }
+        />
+
         <SettingsRow
           {...searchableSetting("setting-appearance-contrast")}
           description="Adjust the contrast of colors and borders across the interface."

@@ -204,6 +204,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["transparent transparency solid menus dialogs composer"],
   },
   {
+    id: "sidebar-branding",
+    title: "T3 Code badge",
+    to: "/settings/appearance",
+    searchTerms: ["sidebar top left logo wordmark brand hide show"],
+  },
+  {
     id: "diff-color-scheme",
     title: "Diff colors",
     to: "/settings/appearance",

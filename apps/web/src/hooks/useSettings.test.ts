@@ -24,6 +24,7 @@ import {
   persistClientSettingsPatch,
   persistClientSettingsUpdate,
   resolveEnvironmentIdentificationMode,
+  resolveSidebarBrandingVisible,
 } from "./useSettings";
 
 beforeEach(() => {
@@ -366,6 +367,20 @@ describe("resolveEnvironmentIdentificationMode", () => {
         paletteThemeAllowsArtwork: true,
       }),
     ).toBe("artwork");
+  });
+});
+
+describe("resolveSidebarBrandingVisible", () => {
+  it("waits for hydration and respects an explicit opt-out", () => {
+    expect(
+      resolveSidebarBrandingVisible({ showSidebarBranding: true, settingsHydrated: false }),
+    ).toBe(false);
+    expect(
+      resolveSidebarBrandingVisible({ showSidebarBranding: true, settingsHydrated: true }),
+    ).toBe(true);
+    expect(
+      resolveSidebarBrandingVisible({ showSidebarBranding: false, settingsHydrated: true }),
+    ).toBe(false);
   });
 });
 
