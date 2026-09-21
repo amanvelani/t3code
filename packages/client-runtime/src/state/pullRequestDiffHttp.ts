@@ -19,7 +19,10 @@ import {
 } from "../rpc/http.ts";
 import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAuth.ts";
 
-const DEFAULT_PULL_REQUEST_DIFF_TIMEOUT_MS = 60_000;
+// Azure reconstructs a patch from separate metadata and file-content reads. Slices keep that
+// work bounded, but a slow organization can still legitimately take longer than ordinary
+// environment reads without being stuck.
+const DEFAULT_PULL_REQUEST_DIFF_TIMEOUT_MS = 120_000;
 
 export class PullRequestDiffCredentialRejectedError extends Schema.TaggedError<PullRequestDiffCredentialRejectedError>()(
   "PullRequestDiffCredentialRejectedError",

@@ -98,8 +98,13 @@ export const MAX_DIFF_SLICE_BYTES = 256 * 1024;
 /**
  * How many files one slice carries however little each one weighs. A binary, oversize, or
  * unreadable entry is just a header, so neither budget above stops a run of thousands of them.
+ *
+ * Azure serves no patch, so every ordinary file costs as many as two `az devops invoke`
+ * processes. Keep a slice to four batches at the provider's four-file concurrency: a larger
+ * count can spend longer than the HTTP diff request's budget before returning any useful data.
+ * The cursor lets the Code tab fetch the rest as the reader reaches it.
  */
-export const MAX_DIFF_SLICE_FILES = 300;
+export const MAX_DIFF_SLICE_FILES = 16;
 
 /** Git's own note for a side whose last line has no newline after it. */
 const NO_NEWLINE_MARKER = "\\ No newline at end of file";

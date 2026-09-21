@@ -269,15 +269,16 @@ describe("getDiff reads", () => {
     }),
   );
 
-  it.effect("holds the number of files it reads at once down", () =>
+  it.effect("bounds both concurrent reads and the files one response waits for", () =>
     Effect.gen(function* () {
       // The host throttles, and `az` is a process on the same machine the reader runs agents on,
       // so a long change is read in batches rather than all at once.
       const paths = Array.from({ length: 24 }, (_, file) => `file-${file}.ts`);
       const read = yield* readSlice({ paths, lines: 2, width: 4 });
 
-      expect(read.reads).toHaveLength(paths.length * 2);
+      expect(read.reads).toHaveLength(MAX_DIFF_SLICE_FILES * 2);
       expect(read.peakInFlight).toBeLessThanOrEqual(8);
+      expect(read.slice.nextCursor).toBe(`${ITERATION.id}:${MAX_DIFF_SLICE_FILES}`);
     }),
   );
 
