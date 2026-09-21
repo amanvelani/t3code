@@ -11,7 +11,6 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   HammerIcon,
-  PencilIcon,
   TagIcon,
   UsersIcon,
 } from "lucide-react";
@@ -24,6 +23,7 @@ import { useOpenLink } from "~/browser/useOpenLink";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 
 import { Button } from "../ui/button";
+import { PullRequestEditButton } from "./PullRequestEditButton";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -190,15 +190,7 @@ function CommentBody({
         threadRef={editing.threadRef}
       />
       {editing.canEdit(comment) ? (
-        <Button
-          size="icon-xs"
-          variant="ghost"
-          className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
-          aria-label="Edit comment"
-          onClick={() => editing.onEdit(comment)}
-        >
-          <PencilIcon className="size-3" />
-        </Button>
+        <PullRequestEditButton aria-label="Edit comment" onClick={() => editing.onEdit(comment)} />
       ) : null}
     </div>
   );
@@ -288,7 +280,7 @@ function MetaRow({
   children: ReactNode;
 }) {
   return (
-    <div className="grid min-w-0 grid-cols-[6rem_minmax(0,1fr)] items-center gap-2 text-xs">
+    <div className="grid min-h-7 min-w-0 grid-cols-[6rem_minmax(0,1fr)] items-center gap-2 text-xs sm:min-h-6">
       <span className="flex items-center gap-1.5 text-muted-foreground">
         {icon}
         {label}
@@ -474,18 +466,21 @@ export function PullRequestSummaryTab({
   reference,
   detail,
   activityPending,
+  checksStale = false,
   activityError,
   pendingFinding,
   fixFindingLabel = "Fix in a thread",
   fixCheckLabel = "Fix",
   onFixFinding,
   onRefresh,
+  onRefreshChecks = onRefresh,
 }: {
   environmentId: EnvironmentId;
   threadRef: ScopedThreadRef | null;
   reference: PullRequestRef;
   detail: PullRequestDetailView;
   activityPending: boolean;
+  checksStale?: boolean;
   activityError: string | null;
   /** The hand-off currently preparing, if any, so only the finding it belongs to says so. */
   pendingFinding?: string | null;
@@ -493,6 +488,7 @@ export function PullRequestSummaryTab({
   fixCheckLabel?: string;
   onFixFinding?: (finding: PullRequestFinding) => void;
   onRefresh: () => void;
+  onRefreshChecks?: () => void;
 }) {
   // Keyed by the pull request, so opening another one starts at the end of its conversation
   // rather than wherever the last one had been read back to.
@@ -875,15 +871,10 @@ export function PullRequestSummaryTab({
                 threadRef={threadRef}
               />
               {canEditPullRequestChangeRequest(detail) ? (
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
+                <PullRequestEditButton
                   aria-label="Edit description"
                   onClick={() => setBodyScope(detail.url)}
-                >
-                  <PencilIcon className="size-3" />
-                </Button>
+                />
               ) : null}
             </div>
           )}
@@ -891,7 +882,14 @@ export function PullRequestSummaryTab({
       </Section>
 
       <Section key={`checks:${detail.url}`} title="Checks" defaultOpen={false}>
-        {detail.checks.length === 0 ? (
+        {checksStale ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>Check details are out of date.</span>
+            <Button size="xs" variant="ghost" onClick={onRefreshChecks}>
+              Refresh
+            </Button>
+          </div>
+        ) : detail.checks.length === 0 ? (
           <p className="text-xs text-muted-foreground">No checks reported.</p>
         ) : (
           detail.checks.map((check, index) => {
