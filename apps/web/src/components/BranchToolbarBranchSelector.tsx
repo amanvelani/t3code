@@ -59,6 +59,7 @@ import {
   useLinkedThreadPullRequest,
 } from "./ThreadStatusIndicators";
 import { Button } from "./ui/button";
+import { ComposerControl } from "./chat/ComposerControl";
 import { Switch } from "./ui/switch";
 import { getVirtualizedScrollFadeClassName } from "./ui/scroll-area";
 import {
@@ -73,6 +74,7 @@ import {
 } from "./ui/combobox";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import { MiddleTruncate } from "./ui/middle-truncate";
 
 export interface BranchToolbarBranchSelectorHandle {
   open: () => void;
@@ -757,7 +759,7 @@ export function BranchToolbarBranchSelector({
         onContextMenu={(event) => handleBranchContextMenu(event, itemValue)}
       >
         <div className="flex w-full min-w-0 items-center justify-between gap-2">
-          <span className="min-w-0 flex-1 truncate">{itemValue}</span>
+          <MiddleTruncate value={itemValue} className="flex-1" />
           {badge && <span className="shrink-0 text-[10px] text-muted-foreground/45">{badge}</span>}
         </div>
       </ComboboxItem>
@@ -789,7 +791,7 @@ export function BranchToolbarBranchSelector({
         data-composer-context-control
       >
         <ThreadPullRequestBadgeControl
-          variant="ghost"
+          render={<ComposerControl size="xs" />}
           badge={prBadge}
           number={prNumber}
           url={prUrl}
@@ -818,12 +820,11 @@ export function BranchToolbarBranchSelector({
               data-composer-label
               className="min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
             >
-              <span
+              <MiddleTruncate
+                value={triggerLabel}
                 data-composer-label-motion
-                className="block w-full min-w-0 max-w-[240px] truncate transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
-              >
-                {triggerLabel}
-              </span>
+                className="flex w-full max-w-[240px] transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
+              />
             </span>
             <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
           </ComboboxTrigger>
@@ -861,7 +862,7 @@ export function BranchToolbarBranchSelector({
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <ComboboxEmpty>No refs found.</ComboboxEmpty>
           <div className="relative min-h-0 w-full max-h-56 flex-1 overflow-hidden">
-            <ComboboxListVirtualized className="size-full min-w-0 p-0">
+            <ComboboxListVirtualized>
               <LegendList<string>
                 ref={branchListRef}
                 data={filteredBranchPickerItems}
@@ -905,7 +906,7 @@ export function BranchToolbarBranchSelector({
                     className="flex cursor-pointer items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-xs"
                   >
                     <span className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground">
-                      <RefreshIcon aria-hidden="true" className="size-3 shrink-0 opacity-70" />
+                      <RefreshIcon aria-hidden="true" size="xs" className="shrink-0" />
                       <span className="truncate">Start from origin</span>
                     </span>
                     <Switch
@@ -918,7 +919,7 @@ export function BranchToolbarBranchSelector({
                   </label>
                 }
               />
-              <TooltipPopup side="top" className="max-w-72 whitespace-normal leading-tight">
+              <TooltipPopup side="top">
                 Creates the worktree from the latest matching branch on origin instead of your local
                 branch.
               </TooltipPopup>
