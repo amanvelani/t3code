@@ -205,6 +205,20 @@ export function mapCodexModelCapabilities(
       currentValue: defaultServiceTier,
     });
   }
+  optionDescriptors.push({
+    id: "contextWindow",
+    label: "Context Window",
+    type: "select",
+    options: [
+      { id: "default", label: "Default", isDefault: true },
+      {
+        id: "1m",
+        label: "1M",
+        description: "Requires a model and proxy that support one million tokens.",
+      },
+    ],
+    currentValue: "default",
+  });
 
   return createModelCapabilities({
     optionDescriptors,

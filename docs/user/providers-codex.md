@@ -1,5 +1,9 @@
 # Codex
 
+## Use a 1M context window
+
+In the composer, open the options next to the Codex model and choose **Context Window → 1M**. This sets Codex's context window to one million tokens for that thread. Choose **Default** to return to the Codex configuration. The selected model and any proxy in use must support the larger window.
+
 For one account, use the default Codex provider with your normal Codex login.
 [Provider setup](./install.md#providers) covers installation, Settings > Providers,
 and custom binaries or environment variables.

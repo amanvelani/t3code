@@ -3252,6 +3252,43 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("restarts Codex when the context window changes while keeping the provider thread", async () => {
+    const harness = await createHarness();
+    const threadId = ThreadId.make("thread-1");
+    const now = "2026-01-01T00:00:00.000Z";
+    const selection = (contextWindow: "default" | "1m") =>
+      createModelSelection(ProviderInstanceId.make("codex"), "gpt-5-codex", [
+        { id: "contextWindow", value: contextWindow },
+      ]);
+
+    for (const [index, contextWindow] of (["default", "1m"] as const).entries()) {
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(`cmd-turn-start-codex-context-${index}`),
+          threadId,
+          message: {
+            messageId: asMessageId(`user-message-codex-context-${index}`),
+            role: "user",
+            text: `turn ${index}`,
+            attachments: [],
+          },
+          modelSelection: selection(contextWindow),
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        }),
+      );
+      await waitFor(() => harness.sendTurn.mock.calls.length === index + 1);
+    }
+
+    expect(harness.startSession).toHaveBeenCalledTimes(2);
+    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+      resumeCursor: { opaque: "resume-1" },
+      modelSelection: selection("1m"),
+    });
+  });
+
   it("restarts the provider session when runtime mode is updated on the thread", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

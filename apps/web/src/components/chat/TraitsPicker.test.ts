@@ -93,6 +93,18 @@ describe("buildTraitsTriggerDisplay", () => {
     });
   });
 
+  it("shows the context window in the trigger only when 1M is selected", () => {
+    const defaultContext = { ...CONTEXT_WINDOW, currentValue: "default" };
+    expect(display([EFFORT, defaultContext])).toEqual({
+      label: "High",
+      showFastModeIcon: false,
+    });
+    expect(display([EFFORT, CONTEXT_WINDOW])).toEqual({
+      label: "High · 1M",
+      showFastModeIcon: false,
+    });
+  });
+
   it("keeps the Codex service tier readable when it is the only trait", () => {
     expect(display([serviceTierDescriptor("default")])).toEqual({
       label: "Standard",

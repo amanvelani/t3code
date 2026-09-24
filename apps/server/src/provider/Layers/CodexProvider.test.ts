@@ -61,6 +61,20 @@ it("maps current Codex model capability fields", () => {
       ],
       currentValue: "flex",
     },
+    {
+      id: "contextWindow",
+      label: "Context Window",
+      type: "select",
+      options: [
+        { id: "default", label: "Default", isDefault: true },
+        {
+          id: "1m",
+          label: "1M",
+          description: "Requires a model and proxy that support one million tokens.",
+        },
+      ],
+      currentValue: "default",
+    },
   ]);
 });
 
@@ -96,6 +110,20 @@ it("uses standard routing when the catalog has no default service tier", () => {
           id: "priority",
           label: "Fast",
           description: "1.5x speed, increased usage",
+        },
+      ],
+      currentValue: "default",
+    },
+    {
+      id: "contextWindow",
+      label: "Context Window",
+      type: "select",
+      options: [
+        { id: "default", label: "Default", isDefault: true },
+        {
+          id: "1m",
+          label: "1M",
+          description: "Requires a model and proxy that support one million tokens.",
         },
       ],
       currentValue: "default",

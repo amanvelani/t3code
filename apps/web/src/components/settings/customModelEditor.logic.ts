@@ -56,6 +56,15 @@ export const DESCRIPTOR_PRESETS_BY_KIND: Partial<
   [ProviderDriverKind.make("codex")]: [
     { id: "reasoningEffort", label: "Reasoning", type: "select", choices: EFFORT_CHOICES },
     {
+      id: "contextWindow",
+      label: "Context Window",
+      type: "select",
+      choices: [
+        { id: "default", label: "Default", isDefault: true },
+        { id: "1m", label: "1M" },
+      ],
+    },
+    {
       id: "serviceTier",
       label: "Speed",
       type: "select",

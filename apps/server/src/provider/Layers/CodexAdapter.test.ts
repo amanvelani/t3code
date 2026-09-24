@@ -282,11 +282,13 @@ validationLayer("CodexAdapterLive validation", (it) => {
         threadId: asThreadId("thread-1"),
         modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.3-codex", [
           { id: "serviceTier", value: "priority" },
+          { id: "contextWindow", value: "1m" },
         ]),
         runtimeMode: "full-access",
       });
 
       NodeAssert.deepStrictEqual(validationRuntimeFactory.factory.mock.calls[0]?.[0], {
+        appServerArgs: ["-c", "model_context_window=1000000"],
         binaryPath: "codex",
         cwd: process.cwd(),
         launchArgs: "",
