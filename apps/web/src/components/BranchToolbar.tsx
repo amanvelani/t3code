@@ -326,6 +326,7 @@ const COMPOSER_CONTEXT_LABEL_SELECTOR = "[data-composer-label]";
 
 function useLabelsOverflow(element: HTMLDivElement | null): boolean {
   const [overflows, setOverflows] = useState(false);
+  const skipNextRenderMeasurementRef = useRef(false);
   const pendingLabelRectsRef = useRef<Map<HTMLElement, DOMRect> | null>(null);
   const labelAnimationsRef = useRef(new Map<HTMLElement, Animation>());
   // A render-synced mirror instead of useEffectEvent: the compiler memoizes
@@ -337,6 +338,9 @@ function useLabelsOverflow(element: HTMLDivElement | null): boolean {
   const measure = useCallback(() => {
     const { element: current, overflows: compact } = stateRef.current;
     if (!current) return;
+    // The animated label widths are between layout states. Measuring them can
+    // reverse the compact decision before the transition has settled.
+    if (labelAnimationsRef.current.size > 0) return;
     const available = current.clientWidth;
     if (available === 0) return;
     // flex-1 stretches the groups to fill the strip, so their own boxes always
@@ -402,6 +406,7 @@ function useLabelsOverflow(element: HTMLDivElement | null): boolean {
       availableWidth: available,
     });
     if (nextOverflows !== compact) {
+      skipNextRenderMeasurementRef.current = true;
       pendingLabelRectsRef.current = new Map(
         Array.from(current.querySelectorAll<HTMLElement>(COMPOSER_CONTEXT_LABEL_SELECTOR)).map(
           (label) => [label, label.getBoundingClientRect()],
@@ -448,12 +453,14 @@ function useLabelsOverflow(element: HTMLDivElement | null): boolean {
         () => {
           if (labelAnimationsRef.current.get(label) === animation) {
             labelAnimationsRef.current.delete(label);
+            if (labelAnimationsRef.current.size === 0) measure();
           }
         },
         { once: true },
       );
     }
-  }, [overflows]);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- The state change triggers the label animation; measure is stable and used when it finishes.
+  }, [measure, overflows]);
 
   useEffect(
     () => () => {
@@ -468,6 +475,12 @@ function useLabelsOverflow(element: HTMLDivElement | null): boolean {
   // size preferences), so re-measure on every render as well as on resize
   // and font loads.
   useLayoutEffect(() => {
+    // A measurement-triggered state change has just updated the strip's own
+    // layout. Let that layout settle before measuring it again.
+    if (skipNextRenderMeasurementRef.current) {
+      skipNextRenderMeasurementRef.current = false;
+      return;
+    }
     measure();
   });
 
