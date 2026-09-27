@@ -56,6 +56,51 @@ const captureProcessResult = (
 
 describe("VcsProcess.run", () => {
   it.effect.each([
+    {
+      stderr: "fatal: not a git repository: /private/secret",
+      detail: "not inside a Git repository",
+    },
+    { stderr: "fatal: detected dubious ownership in /private/secret", detail: "ownership" },
+    { stderr: "error: open('/private/secret'): Permission denied", detail: "permissions" },
+    { stderr: "error: /private/secret: Filename too long", detail: "path length" },
+    { stderr: "error: external filter /private/secret failed", detail: "clean filter" },
+    { stderr: "error: invalid path /private/secret", detail: "invalid on this platform" },
+    { stderr: "fatal: unknown failure /private/secret", detail: "non-zero status" },
+  ])("explains checkpoint failures without exposing stderr: $detail", ({ stderr, detail }) =>
+    Effect.gen(function* () {
+      const service = yield* VcsProcess.make.pipe(
+        Effect.provideService(
+          ProcessRunner.ProcessRunner,
+          ProcessRunner.ProcessRunner.of({
+            run: () =>
+              Effect.succeed({
+                stdout: "",
+                stderr,
+                code: ChildProcessSpawner.ExitCode(128),
+                timedOut: false,
+                stdoutTruncated: false,
+                stderrTruncated: false,
+                stdoutInvalidUtf8: false,
+                stderrInvalidUtf8: false,
+              }),
+          }),
+        ),
+      );
+      const error = yield* service
+        .run({
+          ...baseInput,
+          operation: VcsProcess.CHECKPOINT_CAPTURE_OPERATION,
+          args: ["-c", "core.fsmonitor=false", "add", "-A", "--", "."],
+        })
+        .pipe(Effect.flip);
+      assert.instanceOf(error, VcsProcessExitError);
+      expect(error.command).toBe("git add");
+      expect(error.detail).toContain(detail);
+      expect(yield* encodeExitError(error)).not.toContain("/private/secret");
+    }),
+  );
+
+  it.effect.each([
     { stderr: "fatal: Unable to create '/private/repo/index.lock': File exists", retryable: true },
     {
       stderr: "fatal: Unable to create '/private/repo/index.lock': Permission denied",

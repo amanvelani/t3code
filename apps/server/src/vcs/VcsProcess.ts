@@ -113,6 +113,45 @@ const isTransientGitExit = (stderr: string) =>
   /unable to create [^\n]*\.lock['"]?: file exists/i.test(stderr) ||
   /(?:unable to stat|lstat\(|error: open\()[^\n]+: no such file or directory/i.test(stderr);
 
+// Keep diagnostics actionable without retaining paths or filter output, which can contain secrets.
+const checkpointFailureDetail = (stderr: string): string | undefined => {
+  if (/not a git repository/i.test(stderr))
+    return "The checkpoint folder is not inside a Git repository.";
+  if (/detected dubious ownership/i.test(stderr))
+    return "Git rejected the repository ownership. Check its ownership and safe.directory configuration.";
+  if (/unable to create [^\n]*\.lock['"]?: file exists/i.test(stderr))
+    return "A Git lock already exists. Retry after other Git operations finish.";
+  if (/permission denied|access is denied/i.test(stderr))
+    return "Git could not access a checkpoint file or directory. Check filesystem permissions and file locks.";
+  if (/filename too long|file name too long/i.test(stderr))
+    return "A checkpoint path exceeds Git's path length limit.";
+  if (/does not have a commit checked out/i.test(stderr))
+    return "A nested Git repository has no checked-out commit.";
+  if (/the following paths are ignored/i.test(stderr))
+    return "Git refused to stage an ignored checkpoint path.";
+  if (/clean filter.*failed|external filter.*failed/i.test(stderr))
+    return "A Git clean filter failed while preparing checkpoint files.";
+  if (/invalid path/i.test(stderr)) return "A checkpoint filename is invalid on this platform.";
+  if (/unable to stat|no such file or directory/i.test(stderr))
+    return "A file or directory needed by the checkpoint is missing or changed during capture.";
+  if (/index file corrupt|index file smaller|bad index file/i.test(stderr))
+    return "Git could not read the checkpoint index because it is invalid or corrupt.";
+  return undefined;
+};
+
+const checkpointSteps = new Set([
+  "rev-parse",
+  "config",
+  "check-ignore",
+  "read-tree",
+  "ls-files",
+  "sparse-checkout",
+  "add",
+  "write-tree",
+  "commit-tree",
+  "update-ref",
+]);
+
 export const make = Effect.gen(function* () {
   const processRunner = yield* ProcessRunner.ProcessRunner;
   const vcsProcesses = yield* Semaphore.make(VCS_PROCESS_CONCURRENCY);
@@ -177,8 +216,11 @@ export const make = Effect.gen(function* () {
 
     if (!input.allowNonZeroExit && result.code !== 0) {
       const failureKind = classifyNonZeroExit(input.command, result.stderr);
-      return yield* VcsProcessExitError.fromProcessExit(
-        baseError,
+      const checkpoint =
+        input.command === "git" && input.operation === CHECKPOINT_CAPTURE_OPERATION;
+      const step = checkpoint ? input.args.find((arg) => checkpointSteps.has(arg)) : undefined;
+      const error = VcsProcessExitError.fromProcessExit(
+        { ...baseError, ...(step ? { command: `git ${step}` } : {}) },
         {
           exitCode: result.code,
           stderr: result.stderr,
@@ -189,6 +231,8 @@ export const make = Effect.gen(function* () {
           failureKind === "command-failed" &&
           isTransientGitExit(result.stderr),
       );
+      const detail = checkpoint ? checkpointFailureDetail(result.stderr) : undefined;
+      return yield* detail ? new VcsProcessExitError({ ...error, detail }) : error;
     }
 
     return {
