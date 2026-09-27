@@ -6,6 +6,7 @@
  *
  * @module AnalyticsService
  */
+import { NETWORK_TELEMETRY_ENABLED } from "@t3tools/shared/telemetryPolicy";
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import type { ClientOs } from "@t3tools/contracts";
 import * as Config from "effect/Config";
@@ -88,6 +89,9 @@ function serverOsFromNodePlatform(platform: string): ClientOs {
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
+  if (!NETWORK_TELEMETRY_ENABLED) {
+    return AnalyticsService.of({ record: () => Effect.void, flush: Effect.void });
+  }
   const telemetryConfig = yield* TelemetryEnvConfig;
   const httpClient = yield* HttpClient.HttpClient;
   const serverConfig = yield* ServerConfig.ServerConfig;

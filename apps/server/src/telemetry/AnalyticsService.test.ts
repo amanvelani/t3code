@@ -1,3 +1,4 @@
+import { vi } from "vite-plus/test";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -249,3 +250,6 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
     }),
   );
 });
+
+// Exercise upstream exporter mechanics independently of the fork policy.
+vi.mock("@t3tools/shared/telemetryPolicy", () => ({ NETWORK_TELEMETRY_ENABLED: true }));

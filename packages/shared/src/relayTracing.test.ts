@@ -97,8 +97,13 @@ describe("withRelayClientTracing", () => {
           const payload = new TextDecoder().decode(fetchFn.mock.calls[0]?.[1]?.body as Uint8Array);
           expect(payload).toContain("relay request failed");
           expect(payload).toContain("relay socket closed");
+          expect(payload).toContain('"key":"service.name","value":{"stringValue":"relay-test"}');
+          expect(payload).toContain('"key":"service.namespace","value":{"stringValue":"t3code"}');
         }),
       ),
     );
   });
 });
+
+// Exercise upstream exporter mechanics independently of the fork policy.
+vi.mock("./telemetryPolicy.ts", () => ({ NETWORK_TELEMETRY_ENABLED: true }));

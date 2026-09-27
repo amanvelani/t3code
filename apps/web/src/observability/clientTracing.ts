@@ -1,3 +1,4 @@
+import { NETWORK_TELEMETRY_ENABLED } from "@t3tools/shared/telemetryPolicy";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
@@ -15,8 +16,9 @@ import { APP_VERSION } from "~/branding";
 
 const DEFAULT_EXPORT_INTERVAL_MS = 1_000;
 const CLIENT_TRACING_RESOURCE = {
-  serviceName: "t3-web",
+  serviceName: "t3code-web",
   attributes: {
+    "service.namespace": "t3code",
     "service.runtime": "t3-web",
     "service.mode": isElectron ? "electron" : "browser",
     "service.version": APP_VERSION,
@@ -41,6 +43,7 @@ export interface ClientTracingConfig {
 }
 
 export function configureClientTracing(config: ClientTracingConfig = {}): Promise<void> {
+  if (!NETWORK_TELEMETRY_ENABLED) return Promise.resolve();
   if (config.exportIntervalMs === undefined && activeConfigKey !== null) {
     return pendingConfiguration;
   }

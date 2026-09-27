@@ -2,6 +2,8 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { DesktopUpdateState } from "@t3tools/contracts";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as PlatformError from "effect/PlatformError";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
@@ -33,6 +35,9 @@ export interface UpdatesHarnessOptions {
   readonly stopBackend?: Effect.Effect<void>;
   readonly startBackend?: Effect.Effect<void>;
   readonly env?: Record<string, string | undefined>;
+  readonly platform?: NodeJS.Platform;
+  /** Contents of the resources/package-type marker a Linux package ships. */
+  readonly packageType?: string | undefined;
 }
 
 export interface UpdatesHarness {
@@ -50,6 +55,7 @@ export interface UpdatesHarness {
   readonly checkCount: () => number;
   readonly quitAndInstalls: () => number;
   readonly installSteps: ReadonlyArray<string>;
+  readonly updateRestartMarkers: ReadonlySet<string>;
   readonly downloadCount: () => number;
   readonly feedUrls: () => ReadonlyArray<ElectronUpdater.ElectronUpdaterFeedUrl>;
   readonly fullChangelog: () => boolean;
@@ -130,9 +136,9 @@ export function makeHarness(options: UpdatesHarnessOptions = {}): UpdatesHarness
 
   const windowLayer = Layer.succeed(ElectronWindow.ElectronWindow, {
     create: () => Effect.die("unexpected BrowserWindow creation"),
-    main: Effect.succeed(Option.none()),
-    currentMainOrFirst: Effect.succeed(Option.none()),
-    focusedMainOrFirst: Effect.succeed(Option.none()),
+    main: Effect.succeedNone,
+    currentMainOrFirst: Effect.succeedNone,
+    focusedMainOrFirst: Effect.succeedNone,
     setMain: () => Effect.void,
     clearMain: () => Effect.void,
     prepareReveal: () => Effect.succeed(false),
@@ -154,7 +160,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}): UpdatesHarness
       installSteps.push("startBackend");
     }).pipe(Effect.andThen(options.startBackend ?? Effect.void)),
     stop: () => options.stopBackend ?? Effect.void,
-    currentConfig: Effect.succeed(Option.none()),
+    currentConfig: Effect.succeedNone,
     snapshot: Effect.succeed({
       desiredRunning: false,
       ready: false,
@@ -169,7 +175,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}): UpdatesHarness
   const environmentLayer = DesktopEnvironment.layer({
     dirname: "/repo/apps/desktop/src",
     homeDirectory: `/tmp/t3-desktop-updates-home-${process.pid}`,
-    platform: "darwin",
+    platform: options.platform ?? "darwin",
     processArch: "x64",
     appVersion: "1.2.3",
     appPath: "/repo",
@@ -227,7 +233,34 @@ export function makeHarness(options: UpdatesHarnessOptions = {}): UpdatesHarness
         } satisfies DesktopAppSettings.DesktopAppSettings["Service"])
       : DesktopAppSettings.layer;
 
+  // Tracks the restart markers installs leave, so installs stay free of real
+  // disk I/O that would outrun the tests' settle loops.
+  const updateRestartMarkers = new Set<string>();
+  const fileSystemLayer = FileSystem.layerNoop({
+    readFileString: (path) =>
+      path === "/missing/resources/package-type" && options.packageType !== undefined
+        ? Effect.succeed(options.packageType)
+        : Effect.fail(
+            PlatformError.systemError({
+              module: "FileSystem",
+              method: "readFileString",
+              _tag: "NotFound",
+              pathOrDescriptor: path,
+            }),
+          ),
+    makeDirectory: () => Effect.void,
+    writeFileString: (path) =>
+      Effect.sync(() => {
+        updateRestartMarkers.add(path);
+      }),
+    remove: (path) =>
+      Effect.sync(() => {
+        updateRestartMarkers.delete(path);
+      }),
+  });
+
   const layer = DesktopUpdates.layer.pipe(
+    Layer.provide(fileSystemLayer),
     Layer.provideMerge(updaterLayer),
     Layer.provideMerge(windowLayer),
     Layer.provideMerge(backendLayer),
@@ -250,8 +283,9 @@ export function makeHarness(options: UpdatesHarnessOptions = {}): UpdatesHarness
     checkCount: () => checkCount,
     quitAndInstalls: () => quitAndInstallCount,
     installSteps,
+    updateRestartMarkers,
     downloadCount: () => downloadCount,
-    feedUrls: () => feedUrls,
+    feedUrls: (): ElectronUpdater.ElectronUpdaterFeedUrl[] => feedUrls,
     fullChangelog: () => fullChangelog,
     listenerCount: () =>
       Array.from(listeners.values()).reduce(

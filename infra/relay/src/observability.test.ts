@@ -1,3 +1,4 @@
+import { vi } from "vite-plus/test";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import { expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -62,6 +63,11 @@ it.effect("exports schema error fields as span attributes", () =>
 
     const request = yield* Deferred.await(exportedRequest).pipe(Effect.timeout("1 second"));
     const payload = (yield* decodeJson(request.body)) as OtlpTracer.TraceData;
+    const resourceAttributes = Object.fromEntries(
+      payload.resourceSpans
+        .flatMap((resourceSpan) => resourceSpan.resource.attributes)
+        .map((attribute) => [attribute.key, otlpAttributeValue(attribute.value)]),
+    );
     const span = payload.resourceSpans
       .flatMap((resourceSpan) => resourceSpan.scopeSpans)
       .flatMap((scopeSpan) => scopeSpan.spans)
@@ -75,6 +81,10 @@ it.effect("exports schema error fields as span attributes", () =>
 
     expect(request.authorization).toBe("Bearer test-token");
     expect(request.dataset).toBe("relay-test-traces");
+    expect(resourceAttributes).toMatchObject({
+      "service.name": "t3code-relay",
+      "service.namespace": "t3code",
+    });
     expect(attributes).toMatchObject({
       "error.type": "EnvironmentConnectNotAuthorized",
       "error.environmentId": "environment-1",
@@ -83,3 +93,6 @@ it.effect("exports schema error fields as span attributes", () =>
     });
   }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.scoped),
 );
+
+// Exercise upstream exporter mechanics independently of the fork policy.
+vi.mock("@t3tools/shared/telemetryPolicy", () => ({ NETWORK_TELEMETRY_ENABLED: true }));
