@@ -6,22 +6,15 @@
     {
       "layers": [
         {
+          "glass": false,
           "image-name": "text.svg",
-          "name": "Terminal",
+          "name": "Black",
           "position": {
-            "scale": 8.5,
+            "scale": 8,
             "translation-in-points": [0, 0]
           }
         }
-      ],
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.5
-      },
-      "translucency": {
-        "enabled": true,
-        "value": 0.5
-      }
+      ]
     }
   ],
   "supported-platforms": {
