@@ -8,7 +8,7 @@
         {
           "glass": true,
           "image-name": "text.svg",
-          "name": "Text",
+          "name": "Terminal",
           "position": {
             "scale": 8.5,
             "translation-in-points": [0, 0]
