@@ -1,3 +1,4 @@
+import { NETWORK_TELEMETRY_ENABLED } from "./telemetryPolicy.ts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -128,7 +129,7 @@ export function makeRelayClientTracingLayer(
   config: RelayClientTracingConfig | null,
   resource: RelayClientTracingResource,
 ): Layer.Layer<never, never, HttpClient.HttpClient> {
-  if (config === null) {
+  if (!NETWORK_TELEMETRY_ENABLED || config === null) {
     return Layer.succeed(RelayClientTracer, Option.none());
   }
 

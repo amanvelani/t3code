@@ -1,3 +1,4 @@
+import { vi } from "vite-plus/test";
 import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
@@ -688,3 +689,6 @@ describe("DesktopObservability", () => {
     );
   });
 });
+
+// Exercise upstream exporter mechanics independently of the fork policy.
+vi.mock("@t3tools/shared/telemetryPolicy", () => ({ NETWORK_TELEMETRY_ENABLED: true }));

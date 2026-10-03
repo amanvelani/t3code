@@ -104,3 +104,6 @@ describe("withRelayClientTracing", () => {
     );
   });
 });
+
+// Exercise upstream exporter mechanics independently of the fork policy.
+vi.mock("./telemetryPolicy.ts", () => ({ NETWORK_TELEMETRY_ENABLED: true }));

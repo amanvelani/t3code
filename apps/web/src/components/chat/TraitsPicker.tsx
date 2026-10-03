@@ -501,6 +501,14 @@ export function buildTraitsTriggerDisplay(input: {
   let speedIcon: "fast" | "ultrafast" | null = null;
   const labels: Array<string> = [];
   for (const descriptor of input.descriptors) {
+    if (
+      input.provider === "codex" &&
+      descriptor.id === "contextWindow" &&
+      descriptor.type === "select" &&
+      getProviderOptionCurrentValue(descriptor) === "default"
+    ) {
+      continue;
+    }
     if (descriptor.id === "fastMode" && descriptor.type === "boolean") {
       speedIcon = descriptor.currentValue === true ? "fast" : null;
       fastModeFallbackLabel = speedIcon ? "Fast" : "Normal";

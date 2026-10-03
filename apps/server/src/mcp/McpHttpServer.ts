@@ -15,8 +15,8 @@ import { McpProtocol, McpSchema, McpServer, Tool } from "effect/unstable/ai";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { PreviewAutomationError } from "@t3tools/contracts";
 
-import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
+import { serverVersion } from "../version.ts";
 import * as DeviceService from "../device/DeviceService.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
@@ -710,7 +710,7 @@ export const DeviceToolkitRegistrationLive = Layer.mergeAll(
 
 const McpTransportLive = McpServer.layerHttp({
   name: "T3 Code",
-  version: packageJson.version,
+  version: serverVersion,
   path: "/mcp",
   protocols: [McpProtocol.v2025_06_18],
 }).pipe(Layer.provide(McpAuthMiddlewareLive));

@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
+import { vi } from "vite-plus/test";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 
@@ -1140,3 +1141,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       }),
   );
 });
+
+// Exercise upstream endpoint precedence independently of the fork policy.
+vi.mock("@t3tools/shared/telemetryPolicy", () => ({ NETWORK_TELEMETRY_ENABLED: true }));

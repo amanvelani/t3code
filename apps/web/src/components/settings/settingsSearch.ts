@@ -385,6 +385,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["command menu dollar $ slash /"],
   },
   {
+    id: "telemetry",
+    title: "Share usage data",
+    to: "/settings/general",
+    searchTerms: ["telemetry analytics privacy posthog diagnostics"],
+  },
+  {
     id: "composer-rich-text",
     title: "Rich text composer",
     to: "/settings/general",

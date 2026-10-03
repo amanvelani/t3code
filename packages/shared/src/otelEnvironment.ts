@@ -8,6 +8,7 @@
  *
  * @module otelEnvironment
  */
+import { NETWORK_TELEMETRY_ENABLED } from "./telemetryPolicy.ts";
 import * as Config from "effect/Config";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Data from "effect/Data";
@@ -375,7 +376,7 @@ export const resolveSignalEndpoint = (
   t3: { readonly url: string | undefined; readonly export: SignalExport },
   ...fallbackUrls: ReadonlyArray<string | undefined>
 ): SignalEndpoint | undefined => {
-  if (otel.disabled) {
+  if (!NETWORK_TELEMETRY_ENABLED || otel.disabled) {
     return undefined;
   }
   const t3Url = blankAsUnset(t3.url);

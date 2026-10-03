@@ -4,6 +4,11 @@
 
 This document covers the unified release workflow for stable and nightly desktop releases.
 
+Forks that only need downloadable desktop artifacts can use
+`.github/workflows/desktop-release.yml`. Dispatch it with a version to publish a GitHub Release
+containing macOS arm64/x64 and Windows x64 assets. It does not publish npm, AUR, or hosted-web
+artifacts; its Linux job only builds the WSL `node-pty` helper required inside the Windows package.
+
 ## What the workflow does
 
 - Workflow: `.github/workflows/release.yml`

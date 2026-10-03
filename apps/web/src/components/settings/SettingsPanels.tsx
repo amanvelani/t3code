@@ -2729,6 +2729,12 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          {...searchableSetting("telemetry")}
+          description="Network telemetry is disabled in this fork, including usage analytics and trace exports. Local diagnostics remain available."
+          control={<Switch checked={false} disabled aria-label="Share usage data" />}
+        />
+
+        <SettingsRow
           {...searchableSetting("composer-rich-text")}
           description="Show formatted Markdown as you type."
           resetAction={
