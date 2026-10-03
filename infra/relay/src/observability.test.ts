@@ -1,3 +1,4 @@
+import { vi } from "vite-plus/test";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import { expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -92,3 +93,6 @@ it.effect("exports schema error fields as span attributes", () =>
     });
   }).pipe(Effect.provide(NodeHttpServer.layerTest), Effect.scoped),
 );
+
+// Exercise upstream exporter mechanics independently of the fork policy.
+vi.mock("@t3tools/shared/telemetryPolicy", () => ({ NETWORK_TELEMETRY_ENABLED: true }));

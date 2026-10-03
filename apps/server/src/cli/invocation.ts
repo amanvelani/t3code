@@ -11,7 +11,7 @@ import {
   HostProcessPlatform,
 } from "@t3tools/shared/hostProcess";
 
-import packageJson from "../../package.json" with { type: "json" };
+import { serverVersion } from "../version.ts";
 
 export type CliRunner = "npx" | "pnpm dlx" | "bunx";
 
@@ -142,6 +142,6 @@ export const resolveCliCommand = (subcommand: string) =>
     formatCliCommand({
       subcommand,
       entryPath: processArguments[1] ?? "",
-      version: packageJson.version,
+      version: serverVersion,
     }),
   );

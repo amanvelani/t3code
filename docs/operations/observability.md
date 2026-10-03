@@ -1,5 +1,9 @@
 # Observability
 
+This fork disables network telemetry exports regardless of collector configuration.
+The exporter setup below is retained as upstream reference; only local diagnostics
+apply to this fork. See [Product usage data](../user/telemetry.md).
+
 > For maintainers. Using T3 Code? See [docs/user](../user/).
 
 T3 Code has one server-side observability model:
