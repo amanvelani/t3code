@@ -1172,6 +1172,7 @@ type CodexSubAgentActivityItem = Extract<
 
 export interface CodexAppServerClientFactoryShape {
   readonly open: (input: {
+    readonly modelSelection?: ModelSelection;
     readonly instanceId: ProviderInstanceId;
     readonly threadId: ThreadId;
     readonly providerSessionId: OrchestrationV2ProviderSession["id"];
@@ -1397,9 +1398,15 @@ export const codexAppServerClientFactoryFromSettingsLayer: Layer.Layer<
           };
           const command = yield* makeCodexAppServerSpawnCommand({
             command: input.settings.binaryPath || "codex",
-            args: codexAppServerArgs(
-              resolveCodexLaunchArgs(input.settings.launchArgs, input.environment),
-            ),
+            args: [
+              ...codexAppServerArgs(
+                resolveCodexLaunchArgs(input.settings.launchArgs, input.environment),
+              ),
+              ...(input.modelSelection &&
+              getModelSelectionStringOptionValue(input.modelSelection, "contextWindow") === "1m"
+                ? ["-c", "model_context_window=1000000"]
+                : []),
+            ],
             env: environment,
           });
           const handle = yield* spawner.spawn(command).pipe(
@@ -1554,7 +1561,13 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
     instanceId: adapterOptions.instanceId,
     driver: CODEX_PROVIDER,
     getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
-    planSelectionTransition: () => Effect.succeed(turnScopedSelectionTransition()),
+    planSelectionTransition: ({ current, target }) =>
+      Effect.succeed(
+        getModelSelectionStringOptionValue(current, "contextWindow") !==
+          getModelSelectionStringOptionValue(target, "contextWindow")
+          ? { type: "restart_session" as const }
+          : turnScopedSelectionTransition(),
+      ),
     openSession: (input) =>
       Effect.gen(function* () {
         const scope = yield* Scope.Scope;
@@ -1576,6 +1589,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
           threadId: input.threadId,
           providerSessionId: input.providerSessionId,
           runtimePolicy: input.runtimePolicy,
+          modelSelection: input.modelSelection,
           settings: resolvedRuntime?.config ?? adapterOptions.settings,
           environment: resolvedRuntime?.environment ?? adapterOptions.environment,
         });

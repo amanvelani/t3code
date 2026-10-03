@@ -1,3 +1,4 @@
+import { vi } from "vite-plus/test";
 import { assert, describe, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
@@ -505,3 +506,6 @@ describe("OtelEnvironment", () => {
     );
   });
 });
+
+// Exercise upstream exporter mechanics independently of the fork policy.
+vi.mock("./telemetryPolicy.ts", () => ({ NETWORK_TELEMETRY_ENABLED: true }));

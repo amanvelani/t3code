@@ -1,5 +1,9 @@
 # Relay observability
 
+This fork disables network telemetry exports regardless of collector configuration.
+The exporter setup below is retained as upstream reference; only local diagnostics
+apply to this fork. See [Product usage data](../user/telemetry.md).
+
 > For maintainers. Using T3 Code? See [docs/user](../user/).
 
 The relay Alchemy stack owns a shared Axiom trace setup:

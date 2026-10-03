@@ -387,6 +387,14 @@ describe("ClientSettings word wrap", () => {
   });
 });
 
+describe("ServerSettings telemetry", () => {
+  it("defaults telemetry off and accepts explicit opt-in patches", () => {
+    expect(DEFAULT_SERVER_SETTINGS.enableTelemetry).toBe(false);
+    expect(decodeServerSettings({}).enableTelemetry).toBe(false);
+    expect(decodeServerSettingsPatch({ enableTelemetry: true }).enableTelemetry).toBe(true);
+  });
+});
+
 describe("ClientSettings window capture", () => {
   it("defaults capture off while keeping its feedback enabled", () => {
     const settings = decodeClientSettings({});

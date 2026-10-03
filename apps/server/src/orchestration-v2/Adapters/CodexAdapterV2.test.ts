@@ -727,9 +727,10 @@ describe("CodexAdapterV2 process spawning", () => {
           ProviderEventLoggers.NoOpProviderEventLoggers,
         ),
       );
-      const open = (environment: NodeJS.ProcessEnv) =>
+      const open = (environment: NodeJS.ProcessEnv, modelSelection?: ModelSelection) =>
         factory
           .open({
+            ...(modelSelection ? { modelSelection } : {}),
             instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
             threadId: ThreadId.make("thread-launch-args"),
             providerSessionId: ProviderSessionId.make("provider-session-launch-args"),
@@ -748,10 +749,22 @@ describe("CodexAdapterV2 process spawning", () => {
 
       yield* open({});
       yield* open({ T3CODE_CODEX_LAUNCH_ARGS: " --enable env-feature " });
+      yield* open(
+        {},
+        { ...CODEX_TEST_MODEL_SELECTION, options: [{ id: "contextWindow", value: "1m" }] },
+      );
 
       assert.deepEqual(spawnedArgs, [
         ["app-server", "--strict-config", "-c", "model_reasoning_summary=detailed"],
         ["app-server", "--enable", "env-feature"],
+        [
+          "app-server",
+          "--strict-config",
+          "-c",
+          "model_reasoning_summary=detailed",
+          "-c",
+          "model_context_window=1000000",
+        ],
       ]);
     }).pipe(Effect.provideService(HostProcessPlatform, "linux")),
   );
@@ -1720,6 +1733,25 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             }),
         },
       });
+      assert.deepStrictEqual(
+        yield* adapter.planSelectionTransition({
+          current: CODEX_TEST_MODEL_SELECTION,
+          target: {
+            ...CODEX_TEST_MODEL_SELECTION,
+            options: [{ id: "contextWindow", value: "1m" }],
+          },
+          sessionCapabilities: CodexAdapterV2.CodexProviderCapabilitiesV2,
+        }),
+        { type: "restart_session" },
+      );
+      assert.deepStrictEqual(
+        yield* adapter.planSelectionTransition({
+          current: CODEX_TEST_MODEL_SELECTION,
+          target: CODEX_TEST_MODEL_SELECTION,
+          sessionCapabilities: CodexAdapterV2.CodexProviderCapabilitiesV2,
+        }),
+        { type: "apply_on_next_turn" },
+      );
       const threadId = ThreadId.make(`thread-${transcript.scenario}`);
       const runtime = yield* adapter.openSession({
         threadId,

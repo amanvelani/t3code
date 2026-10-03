@@ -25,6 +25,10 @@ T3 Code can use your installed Codex and its existing login. Run `codex login`
 on the environment's machine to sign in. [Provider setup](./install.md#providers)
 covers installation and custom configuration.
 
+## Use a 1M context window
+
+In the composer, open the options next to the Codex model and choose **Context Window → 1M**. This sets Codex's context window to one million tokens for that thread. Choose **Default** to return to the Codex configuration. The selected model and any proxy in use must support the larger window.
+
 ## Use multiple accounts
 
 Add another ChatGPT account in **Settings → Providers**, then select the account

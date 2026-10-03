@@ -47,7 +47,7 @@ import {
   type CodexRateLimitSnapshot,
   type CodexResetCreditsSummary,
 } from "./codexUsageLimits.ts";
-import packageJson from "../../../package.json" with { type: "json" };
+import { serverVersion } from "../../version.ts";
 const isCodexAppServerSpawnError = Schema.is(CodexErrors.CodexAppServerSpawnError);
 const RATE_LIMITS_PROBE_TIMEOUT_MS = 3_000;
 
@@ -216,6 +216,20 @@ export function mapCodexModelCapabilities(
       currentValue: defaultServiceTier,
     });
   }
+  optionDescriptors.push({
+    id: "contextWindow",
+    label: "Context Window",
+    type: "select",
+    options: [
+      { id: "default", label: "Default", isDefault: true },
+      {
+        id: "1m",
+        label: "1M",
+        description: "Requires a model and proxy that support one million tokens.",
+      },
+    ],
+    currentValue: "default",
+  });
 
   return createModelCapabilities({
     optionDescriptors,
@@ -349,7 +363,7 @@ export function buildCodexInitializeParams(): CodexSchema.V1InitializeParams {
     clientInfo: {
       name: "T3 Code",
       title: "T3 Code",
-      version: packageJson.version,
+      version: serverVersion,
     },
     capabilities: {
       experimentalApi: true,

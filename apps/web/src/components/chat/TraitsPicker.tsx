@@ -498,6 +498,14 @@ export function buildTraitsTriggerDisplay(input: {
   let reasoningLabelIndex = -1;
   const labels: Array<string> = [];
   for (const descriptor of input.descriptors) {
+    if (
+      input.provider === "codex" &&
+      descriptor.id === "contextWindow" &&
+      descriptor.type === "select" &&
+      getProviderOptionCurrentValue(descriptor) === "default"
+    ) {
+      continue;
+    }
     if (descriptor.id === "fastMode" && descriptor.type === "boolean") {
       speedLabel = descriptor.currentValue === true ? "Fast" : null;
       fastModeFallbackLabel = speedLabel ?? "Normal";

@@ -1,3 +1,4 @@
+import { NETWORK_TELEMETRY_ENABLED } from "@t3tools/shared/telemetryPolicy";
 import * as Alchemy from "alchemy";
 import * as Axiom from "alchemy/Axiom";
 import * as Output from "alchemy/Output";
@@ -219,20 +220,23 @@ export const makeRelayTraceLayer = (input: {
 }) =>
   Layer.effect(
     Tracer.Tracer,
-    OtlpTracer.make({
-      url: input.tracesEndpoint,
-      resource: {
-        serviceName: "t3code-relay",
-        attributes: {
-          "service.namespace": "t3code",
-          "service.runtime": "cloudflare-worker",
-          "service.component": "relay",
-        },
-      },
-      headers: {
-        Authorization: `Bearer ${Redacted.value(input.ingestToken)}`,
-        "X-Axiom-Dataset": input.tracesDatasetName,
-      },
-      exportInterval: "1 second",
-    }).pipe(Effect.map(withSchemaErrorAttributes)),
+    (NETWORK_TELEMETRY_ENABLED
+      ? OtlpTracer.make({
+          url: input.tracesEndpoint,
+          resource: {
+            serviceName: "t3code-relay",
+            attributes: {
+              "service.namespace": "t3code",
+              "service.runtime": "cloudflare-worker",
+              "service.component": "relay",
+            },
+          },
+          headers: {
+            Authorization: `Bearer ${Redacted.value(input.ingestToken)}`,
+            "X-Axiom-Dataset": input.tracesDatasetName,
+          },
+          exportInterval: "1 second",
+        })
+      : Effect.succeed(Tracer.make({ span: (options) => new Tracer.NativeSpan(options) }))
+    ).pipe(Effect.map(withSchemaErrorAttributes)),
   ).pipe(Layer.provideMerge(OtlpExporter.layerFlusher), Layer.provide(OtlpSerialization.layerJson));

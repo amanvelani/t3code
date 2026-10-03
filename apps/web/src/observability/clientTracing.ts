@@ -1,3 +1,4 @@
+import { NETWORK_TELEMETRY_ENABLED } from "@t3tools/shared/telemetryPolicy";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
@@ -42,6 +43,7 @@ export interface ClientTracingConfig {
 }
 
 export function configureClientTracing(config: ClientTracingConfig = {}): Promise<void> {
+  if (!NETWORK_TELEMETRY_ENABLED) return Promise.resolve();
   if (config.exportIntervalMs === undefined && activeConfigKey !== null) {
     return pendingConfiguration;
   }

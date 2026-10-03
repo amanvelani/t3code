@@ -1,3 +1,4 @@
+import { NETWORK_TELEMETRY_ENABLED } from "@t3tools/shared/telemetryPolicy";
 /**
  * Anonymous PostHog telemetry service.
  *
@@ -121,6 +122,9 @@ function serverOsFromNodePlatform(platform: string): ClientOs {
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
+  if (!NETWORK_TELEMETRY_ENABLED) {
+    return AnalyticsService.of({ record: () => Effect.void, flush: Effect.void });
+  }
   const telemetryConfig = yield* TelemetryEnvConfig;
   const httpClient = yield* HttpClient.HttpClient;
   const serverConfig = yield* ServerConfig.ServerConfig;
