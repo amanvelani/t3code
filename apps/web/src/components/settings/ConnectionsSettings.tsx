@@ -74,6 +74,7 @@ import {
   useRelativeTimeTick,
 } from "./settingsLayout";
 import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
+import { DevTunnelSettings } from "./DevTunnelSettings";
 import { searchableSetting } from "./settingsSearch";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import { EnvironmentRoutesList } from "./EnvironmentRoutesList";
@@ -3526,6 +3527,11 @@ export function ConnectionsSettings() {
                 {renderDisabledNetworkAccessRow()}
                 <CloudLinkRow canManageRelay={canManageRelay} />
               </>
+            ) : null}
+            {canManageLocalBackend &&
+            primaryEnvironmentId !== null &&
+            primaryServerConfig?.environment.capabilities.devTunnels ? (
+              <DevTunnelSettings environmentId={primaryEnvironmentId} />
             ) : null}
           </SettingsSection>
 

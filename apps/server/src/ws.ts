@@ -205,6 +205,7 @@ import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolve
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
+import * as DevTunnel from "./environment/DevTunnel.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
@@ -1277,6 +1278,7 @@ const makeWsRpcLayer = (
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
+      const devTunnel = yield* DevTunnel.DevTunnel;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
       yield* Effect.addFinalizer(() =>
@@ -2092,6 +2094,11 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "server",
             },
           ),
+        [WS_METHODS.serverSubscribeDevTunnel]: () => devTunnel.changes,
+        [WS_METHODS.serverSetDevTunnelEnabled]: ({ enabled }) =>
+          observeRpcEffect(WS_METHODS.serverSetDevTunnelEnabled, devTunnel.setEnabled(enabled), {
+            "rpc.aggregate": "server",
+          }),
         [WS_METHODS.serverSearchAcpRegistry]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverSearchAcpRegistry,
