@@ -108,6 +108,26 @@ tailscale serve --https=443 off
 If that port is already in use, choose another with
 `--tailscale-serve-port`. See `t3 pair --help` for other pairing options.
 
+### Microsoft Dev Tunnels
+
+Use a private Microsoft Dev Tunnel to connect from another browser without installing
+Tailscale on either device. Install the `devtunnel` CLI on the machine running T3 Code,
+then sign in with `devtunnel user login -d`. See Microsoft's
+[installation instructions](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/get-started).
+
+Enable **Dev Tunnels** under **Settings → Connections** on the host, or start a
+command-line server with `t3 serve --dev-tunnel`. T3 Code remembers the tunnel and
+reuses it when the server restarts. Turn the setting off to stop access through it.
+
+Open the displayed tunnel address in the other device's browser and sign in with
+the same Microsoft or GitHub account. Then use **Create pairing link** on the host,
+or run `t3 pair --dev-tunnel`, and open that one-time link in the signed-in browser.
+T3 Code and the host machine must stay running while you work.
+
+Private tunnel sign-in works through the directly served browser client. The hosted
+app at app.t3.codes and native desktop/mobile connections do not handle this extra
+sign-in; open the tunnel address directly in a browser instead.
+
 ### Hosted web app
 
 [app.t3.codes](https://app.t3.codes) needs an HTTPS endpoint. It connects directly

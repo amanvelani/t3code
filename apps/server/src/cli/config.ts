@@ -197,6 +197,7 @@ export interface CliServerFlags {
   readonly logWebSocketEvents: Option.Option<boolean>;
   readonly tailscaleServeEnabled: Option.Option<boolean>;
   readonly tailscaleServePort: Option.Option<number>;
+  readonly devTunnelEnabled?: Option.Option<boolean>;
 }
 
 export interface CliAuthLocationFlags {
@@ -231,6 +232,12 @@ export const sharedServerCommandFlags = {
   logWebSocketEvents: logWebSocketEventsFlag,
   tailscaleServeEnabled: tailscaleServeFlag,
   tailscaleServePort: tailscaleServePortFlag,
+  devTunnelEnabled: Flag.Boolean("dev-tunnel").pipe(
+    Flag.withDescription(
+      "Host this server through a private Microsoft Dev Tunnel (requires devtunnel login).",
+    ),
+    Flag.optional,
+  ),
 } as const;
 
 const resolveOptionPrecedence = <Value>(
@@ -274,6 +281,7 @@ export const resolveServerConfig = (
       logWebSocketEvents: flags.logWebSocketEvents ?? Option.none(),
       tailscaleServeEnabled: flags.tailscaleServeEnabled ?? Option.none(),
       tailscaleServePort: flags.tailscaleServePort ?? Option.none(),
+      devTunnelEnabled: flags.devTunnelEnabled ?? Option.none(),
     } satisfies CliServerFlags;
     const bootstrapFd = Option.getOrUndefined(normalizedFlags.bootstrapFd) ?? env.bootstrapFd;
     const bootstrapEnvelope =
@@ -458,6 +466,7 @@ export const resolveServerConfig = (
       logWebSocketEvents,
       tailscaleServeEnabled,
       tailscaleServePort,
+      devTunnelEnabled: Option.getOrElse(normalizedFlags.devTunnelEnabled, () => false),
     };
 
     return config;

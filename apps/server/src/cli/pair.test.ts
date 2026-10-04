@@ -144,6 +144,39 @@ const withDescriptorServer = <A, E, R>(run: (origin: string) => Effect.Effect<A,
   );
 
 describe("t3 pair", () => {
+  it.effect("mints a direct pairing link through the running Dev Tunnel", () =>
+    withDescriptorServer((origin) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const baseDir = NodeFS.mkdtempSync(
+            NodePath.join(NodeOS.tmpdir(), "t3-pair-tunnel-test-"),
+          );
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => NodeFS.rmSync(baseDir, { recursive: true, force: true })),
+          );
+          yield* persistServerRuntimeState({
+            path: NodePath.join(baseDir, "userdata", "server-runtime.json"),
+            state: yield* makePersistedServerRuntimeState({
+              config: { host: "127.0.0.1", devUrl: undefined },
+              port: Number(new URL(origin).port),
+            }),
+          });
+          NodeFS.writeFileSync(
+            NodePath.join(baseDir, "userdata", "dev-tunnel-url"),
+            "https://pair-test-3773.usw2.devtunnels.ms/",
+          );
+          const output = yield* captureStdout(
+            runCli(["pair", "--base-dir", baseDir, "--dev-tunnel"]),
+          );
+          assert.include(
+            output,
+            "Pairing URL: https://pair-test-3773.usw2.devtunnels.ms/pair#token=",
+          );
+          assert.include(output, "sign in to the tunnel account");
+        }),
+      ),
+    ).pipe(Effect.provide(CliRuntimeLayer)),
+  );
   it.effect("mints a token and prints a QR pairing URL for a live server", () =>
     withDescriptorServer((origin) =>
       Effect.gen(function* () {

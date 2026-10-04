@@ -173,6 +173,7 @@ import { projectHttpApiLayer } from "./project/http.ts";
 import * as NetService from "@t3tools/shared/Net";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import { disableTailscaleServe, ensureTailscaleServe } from "@t3tools/tailscale";
+import * as DevTunnel from "./environment/DevTunnel.ts";
 import * as ServerActivation from "./serverActivation.ts";
 
 // MCP handoff thread IDs include escaped provenance and can exceed find-my-way's
@@ -1021,6 +1022,7 @@ const makeServerLayer = Layer.unwrap(
     );
 
     return serverApplicationLayer.pipe(
+      Layer.provideMerge(DevTunnel.layer),
       Layer.provideMerge(runtimeServicesLive),
       Layer.provideMerge(
         McpSessionRegistry.layer.pipe(

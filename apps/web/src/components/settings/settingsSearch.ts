@@ -814,6 +814,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     localBackendManagementOnly: true,
   },
   {
+    id: "dev-tunnels",
+    title: "Dev Tunnels",
+    to: "/settings/connections",
+    targetId: "connections-environment",
+    searchTerms: ["microsoft vscode cloud devbox tunnel remote https browser pairing"],
+    localBackendManagementOnly: true,
+  },
+  {
     id: "wsl-backend",
     title: "WSL backend",
     to: "/settings/connections",

@@ -13,6 +13,7 @@ import {
   AuthStandardClientScopes,
   ExecutionEnvironmentDescriptor,
   PortSchema,
+  DevTunnelError,
 } from "@t3tools/contracts";
 import { resolveWorktreeT3Home } from "@t3tools/shared/devHome";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
@@ -28,8 +29,10 @@ import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
 import { Command, Flag, GlobalFlag } from "effect/unstable/cli";
@@ -481,6 +484,10 @@ export const pairCommand = Command.make("pair", {
   ttl: ttlFlag,
   label: labelFlag,
   tailscale: tailscaleFlag,
+  devTunnel: Flag.Boolean("dev-tunnel").pipe(
+    Flag.withDescription("Pair through this server's running Microsoft Dev Tunnel."),
+    Flag.withDefault(false),
+  ),
   tailscaleServePort: tailscaleServePortFlag,
 }).pipe(
   Command.withDescription(
@@ -497,7 +504,20 @@ export const pairCommand = Command.make("pair", {
 
       const notes: Array<string> = [];
       let pairingBaseUrl: string;
-      if (flags.tailscale) {
+      if (flags.devTunnel) {
+        if (flags.tailscale) return yield* new DevTunnelError({ reason: "configuration" });
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const config = yield* makePairServerConfig({ target, logLevel });
+        pairingBaseUrl = (yield* fs
+          .readFileString(path.join(config.stateDir, "dev-tunnel-url"))
+          .pipe(
+            Effect.mapError((cause) => new DevTunnelError({ reason: "not-running", cause })),
+          )).trim();
+        notes.push(
+          "Open the tunnel address and sign in to the tunnel account before opening this pairing link.",
+        );
+      } else if (flags.tailscale) {
         const resolved = yield* resolveTailscalePairingBase({
           target,
           servePort: flags.tailscaleServePort,

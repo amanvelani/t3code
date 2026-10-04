@@ -1061,6 +1061,15 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:trace-diagnostics",
       tag: WS_METHODS.serverGetTraceDiagnostics,
     }),
+    devTunnel: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:dev-tunnel",
+      tag: WS_METHODS.serverSubscribeDevTunnel,
+      idleTtlMs: 0,
+    }),
+    setDevTunnelEnabled: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:set-dev-tunnel-enabled",
+      tag: WS_METHODS.serverSetDevTunnelEnabled,
+    }),
     processDiagnostics: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:process-diagnostics",
       tag: WS_METHODS.serverGetProcessDiagnostics,

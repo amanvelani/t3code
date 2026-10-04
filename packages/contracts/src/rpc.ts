@@ -303,6 +303,7 @@ import {
 } from "./providerUsageLimits.ts";
 import { UsagePricing, UsageReadError, UsageSummary, UsageSummaryInput } from "./usage.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
+import { DevTunnelError, DevTunnelState } from "./devTunnel.ts";
 import {
   ScheduledTaskDeleteInput,
   ScheduledTaskDeleteResult,
@@ -441,6 +442,8 @@ export const WS_METHODS = {
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverRemoveKeybinding: "server.removeKeybinding",
   serverGetSettings: "server.getSettings",
+  serverSubscribeDevTunnel: "server.subscribeDevTunnel",
+  serverSetDevTunnelEnabled: "server.setDevTunnelEnabled",
   serverUpdateSettings: "server.updateSettings",
   serverDiscoverSourceControl: "server.discoverSourceControl",
   serverSearchAcpRegistry: "server.searchAcpRegistry",
@@ -702,6 +705,19 @@ const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
   payload: Schema.Struct({}),
   success: ServerSettings,
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+const WsServerSubscribeDevTunnelRpc = Rpc.make(WS_METHODS.serverSubscribeDevTunnel, {
+  payload: Schema.Struct({}),
+  success: DevTunnelState,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
+const WsServerSetDevTunnelEnabledRpc = Rpc.make(WS_METHODS.serverSetDevTunnelEnabled, {
+  payload: Schema.Struct({ enabled: Schema.Boolean }),
+  success: DevTunnelState,
+  error: Schema.Union([DevTunnelError, EnvironmentAuthorizationError]),
 });
 
 const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
@@ -1725,6 +1741,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpsertKeybindingRpc,
   WsServerRemoveKeybindingRpc,
   WsServerGetSettingsRpc,
+  WsServerSubscribeDevTunnelRpc,
+  WsServerSetDevTunnelEnabledRpc,
   WsServerUpdateSettingsRpc,
   WsServerDiscoverSourceControlRpc,
   WsServerSearchAcpRegistryRpc,
