@@ -1,4 +1,4 @@
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { DEFAULT_CLIENT_SETTINGS, EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { EnvironmentProject } from "./models.ts";
@@ -117,6 +117,19 @@ function settings(
 }
 
 describe("buildProjectGroups", () => {
+  it("shows physical clones separately for a fresh client", () => {
+    const groups = buildProjectGroups({
+      projects: [
+        makeProject("t3code", "/work/t3code"),
+        makeProject("t3code-2", "/work/t3code-2"),
+        makeProject("t3code-3", "/work/t3code-3"),
+      ],
+      settings: DEFAULT_CLIENT_SETTINGS,
+    });
+    expect(groups.map((group) => group.label)).toEqual(["t3code", "t3code-2", "t3code-3"]);
+    expect(groups.every((group) => group.members.length === 1)).toBe(true);
+  });
+
   it("preserves every physical clone as a selectable member in repository modes", () => {
     const projects = [
       makeProject("t3code", "/work/t3code"),

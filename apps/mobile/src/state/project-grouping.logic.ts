@@ -1,10 +1,10 @@
 import type { ProjectGroupingSettings } from "@t3tools/client-runtime/state/project-grouping";
-import type { SidebarProjectGroupingMode } from "@t3tools/contracts";
+import { DEFAULT_CLIENT_SETTINGS, type SidebarProjectGroupingMode } from "@t3tools/contracts";
 
 import type { Preferences } from "../persistence/mobile-preferences";
 
 export const DEFAULT_MOBILE_PROJECT_GROUPING_SETTINGS: ProjectGroupingSettings = {
-  sidebarProjectGroupingMode: "repository",
+  sidebarProjectGroupingMode: DEFAULT_CLIENT_SETTINGS.sidebarProjectGroupingMode,
   sidebarProjectGroupingOverrides: {},
 };
 
@@ -14,7 +14,11 @@ export function resolveMobileProjectGroupingSettings(
   return {
     sidebarProjectGroupingMode:
       preferences.projectGroupingMode ??
-      (preferences.projectGroupingEnabled === false ? "separate" : "repository"),
+      (preferences.projectGroupingEnabled === true
+        ? "repository"
+        : preferences.projectGroupingEnabled === false
+          ? "separate"
+          : DEFAULT_MOBILE_PROJECT_GROUPING_SETTINGS.sidebarProjectGroupingMode),
     sidebarProjectGroupingOverrides: {},
   };
 }
