@@ -211,6 +211,10 @@ export function codexProviderTurnTokenUsage(
 }
 const DEFAULT_CODEX_SETTINGS = Schema.decodeSync(CodexSettings)({});
 const CODEX_ASSISTANT_DELTA_FLUSH_INTERVAL_MS = 50;
+
+function normalizeCodexAnswerText(text: string): string {
+  return text.replace(/\r\n?/g, "\n").trimEnd();
+}
 const CodexBackgroundTerminalTerminateResponse = Schema.Struct({
   terminated: Schema.Boolean,
 });
@@ -1714,7 +1718,15 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
         const deferredRootTerminals = yield* Ref.make(new Map<string, DeferredCodexRootTerminal>());
         const offeredContinuationItemsByTurn = yield* Ref.make(new Map<string, Set<string>>());
         const finalAnswerItemIdsByTurn = yield* Ref.make(new Map<string, Set<string>>());
-        const completedFinalAnswerTextsByTurn = yield* Ref.make(new Map<string, Set<string>>());
+        const completedAgentMessageTextsByTurn = yield* Ref.make(
+          new Map<
+            string,
+            {
+              readonly texts: ReadonlySet<string>;
+              readonly finalAnswerTexts: ReadonlySet<string>;
+            }
+          >(),
+        );
         // Native completion and the interrupt timeout share one finalization
         // path. Serialize the race so only one can publish terminal events.
         const turnTerminalizationPermit = yield* Semaphore.make(1);
@@ -1959,7 +1971,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               updated.delete(nativeTurnId);
               return updated;
             });
-            yield* Ref.update(completedFinalAnswerTextsByTurn, (current) => {
+            yield* Ref.update(completedAgentMessageTextsByTurn, (current) => {
               if (!current.has(nativeTurnId)) {
                 return current;
               }
@@ -3042,24 +3054,53 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               const finalAnswerItem = (yield* Ref.get(finalAnswerItemIdsByTurn))
                 .get(update.turnId)
                 ?.has(update.itemId);
-              if (finalAnswerItem) {
-                const finalAnswerItemIds = (yield* Ref.get(finalAnswerItemIdsByTurn)).get(
-                  update.turnId,
-                );
-                const completedTexts =
-                  (yield* Ref.get(completedFinalAnswerTextsByTurn)).get(update.turnId) ??
-                  new Set<string>();
-                const firstFinalAnswerItemId = finalAnswerItemIds?.values().next().value;
-                const duplicateCompletion =
-                  update.completed &&
-                  completedTexts.size > 0 &&
-                  (update.text.length === 0 || completedTexts.has(update.text));
-                const deferredStreamingUpdate =
-                  !update.completed &&
-                  (completedTexts.size > 0 || firstFinalAnswerItemId !== update.itemId);
-                if (deferredStreamingUpdate || duplicateCompletion) {
+              const completedMessages = (yield* Ref.get(completedAgentMessageTextsByTurn)).get(
+                update.turnId,
+              );
+              // Keep repeated progress updates during work, but suppress earlier
+              // commentary replayed after a final answer has already completed.
+              const hasCompletedFinalAnswer = (completedMessages?.finalAnswerTexts.size ?? 0) > 0;
+              const deduplicateMessage = finalAnswerItem || hasCompletedFinalAnswer;
+              const normalizedText =
+                deduplicateMessage || update.completed
+                  ? normalizeCodexAnswerText(update.text)
+                  : update.text;
+              const duplicateCompletion =
+                deduplicateMessage &&
+                update.completed &&
+                (normalizedText.length === 0
+                  ? finalAnswerItem && hasCompletedFinalAnswer
+                  : completedMessages?.texts.has(normalizedText) === true);
+              if (deduplicateMessage && !update.completed) {
+                const firstFinalAnswerItemId = (yield* Ref.get(finalAnswerItemIdsByTurn))
+                  .get(update.turnId)
+                  ?.values()
+                  .next().value;
+                // A later overlapping final waits for the first to complete. Otherwise
+                // buffer only a possible repeat, and stream as soon as its text diverges.
+                if (finalAnswerItem && firstFinalAnswerItemId !== update.itemId) {
                   return;
                 }
+                for (const text of completedMessages?.texts ?? []) {
+                  if (text.length > 0 && text.startsWith(normalizedText)) {
+                    return;
+                  }
+                }
+              }
+              if (update.completed) {
+                yield* Ref.update(completedAgentMessageTextsByTurn, (current) => {
+                  const updated = new Map(current);
+                  const previous = current.get(update.turnId);
+                  const texts = new Set(previous?.texts ?? []);
+                  const finalAnswerTexts = new Set(previous?.finalAnswerTexts ?? []);
+                  texts.add(normalizedText);
+                  if (finalAnswerItem) finalAnswerTexts.add(normalizedText);
+                  updated.set(update.turnId, { texts, finalAnswerTexts });
+                  return updated;
+                });
+              }
+              if (duplicateCompletion) {
+                return;
               }
               const artifacts = yield* buildAgentMessageArtifacts(
                 context,
@@ -3081,15 +3122,6 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                 driver: CODEX_PROVIDER,
                 turnItem: artifacts.turnItem,
               });
-              if (finalAnswerItem && update.completed) {
-                yield* Ref.update(completedFinalAnswerTextsByTurn, (current) => {
-                  const updated = new Map(current);
-                  const texts = new Set(updated.get(update.turnId) ?? []);
-                  texts.add(update.text);
-                  updated.set(update.turnId, texts);
-                  return updated;
-                });
-              }
             }),
         });
 
@@ -4456,8 +4488,8 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               });
             }
             const completedTextsBefore =
-              (yield* Ref.get(completedFinalAnswerTextsByTurn)).get(payload.turnId) ??
-              new Set<string>();
+              (yield* Ref.get(completedAgentMessageTextsByTurn)).get(payload.turnId)
+                ?.finalAnswerTexts ?? new Set<string>();
             const text = yield* agentMessageDeltas.complete({
               turnId: payload.turnId,
               itemId: payload.item.id,
@@ -4478,11 +4510,13 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               }
               return updated;
             });
-            const emitted =
-              !finalAnswer ||
-              completedTextsBefore.size === 0 ||
-              (text.length > 0 && !completedTextsBefore.has(text));
-            if (emitted && context.subagent !== null && finalAnswer) {
+            const normalizedText = normalizeCodexAnswerText(text);
+            // A first final still supplies the subagent result when it repeats commentary.
+            const newFinalAnswer =
+              finalAnswer &&
+              (completedTextsBefore.size === 0 ||
+                (normalizedText.length > 0 && !completedTextsBefore.has(normalizedText)));
+            if (newFinalAnswer && context.subagent !== null) {
               yield* emitSubagentTaskUpdate({
                 subagent: context.subagent,
                 status: context.subagent.task.status,
@@ -5315,7 +5349,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                 });
               }
               if (!retainSettledContext) {
-                yield* Ref.update(completedFinalAnswerTextsByTurn, (current) => {
+                yield* Ref.update(completedAgentMessageTextsByTurn, (current) => {
                   if (!current.has(input.nativeTurnId)) {
                     return current;
                   }

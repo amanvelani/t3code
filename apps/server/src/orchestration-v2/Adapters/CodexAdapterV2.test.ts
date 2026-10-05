@@ -3425,6 +3425,377 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     });
   };
 
+  it.effect.each([
+    {
+      name: "commentary repeated as a final answer",
+      firstPhase: "commentary",
+      secondPhase: "final_answer",
+      original: "Report\n\n| Tool | Calls |\n| --- | --- |\n| Shell | 7,724 |",
+      next: "Report\n\n| Tool | Calls |\n| --- | --- |\n| Shell | 7,724 |",
+      duplicate: true,
+      streams: false,
+    },
+    {
+      name: "commentary repeated with CRLF and trailing whitespace",
+      firstPhase: "commentary",
+      secondPhase: "final_answer",
+      original: "Report\n\nShell: 7,724",
+      next: "Report\r\n\r\nShell: 7,724\r\n \t",
+      duplicate: true,
+      streams: false,
+    },
+    {
+      name: "final answer repeated with trailing whitespace",
+      firstPhase: "final_answer",
+      secondPhase: "final_answer",
+      original: "CODEX_RECOVERY_OK",
+      next: "CODEX_RECOVERY_OK\n \t",
+      duplicate: true,
+      streams: false,
+    },
+    {
+      name: "commentary repeated with an unknown final phase",
+      firstPhase: "commentary",
+      secondPhase: null,
+      original: "CODEX_RECOVERY_OK",
+      next: "CODEX_RECOVERY_OK",
+      duplicate: true,
+      streams: false,
+    },
+    {
+      name: "distinct final answer after commentary",
+      firstPhase: "commentary",
+      secondPhase: "final_answer",
+      original: "Report: working",
+      next: "Report: complete",
+      duplicate: false,
+      streams: true,
+    },
+    {
+      name: "distinct final answer after another final answer",
+      firstPhase: "final_answer",
+      secondPhase: "final_answer",
+      original: "Report: working",
+      next: "Report: complete",
+      duplicate: false,
+      streams: true,
+    },
+    {
+      name: "shorter final answer sharing an earlier prefix",
+      firstPhase: "commentary",
+      secondPhase: "final_answer",
+      original: "Report: complete",
+      next: "Report:",
+      duplicate: false,
+      streams: false,
+    },
+    {
+      name: "distinct leading whitespace",
+      firstPhase: "final_answer",
+      secondPhase: "final_answer",
+      original: "CODEX_RECOVERY_OK",
+      next: "  CODEX_RECOVERY_OK",
+      duplicate: false,
+      streams: true,
+    },
+    {
+      name: "commentary repeated after a final answer",
+      firstPhase: "final_answer",
+      secondPhase: "commentary",
+      original: "CODEX_RECOVERY_OK",
+      next: "CODEX_RECOVERY_OK",
+      duplicate: true,
+      streams: false,
+    },
+    {
+      name: "repeated commentary",
+      firstPhase: "commentary",
+      secondPhase: "commentary",
+      original: "Still working.",
+      next: "Still working.",
+      duplicate: false,
+      streams: true,
+    },
+  ] as const)("handles double reply: $name", (scenario) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const transcript = finalAnswerTranscript(`double-reply-${scenario.name}`, [
+          { id: "answer-original", text: scenario.original, phase: scenario.firstPhase },
+          {
+            id: "answer-next",
+            text: scenario.next,
+            phase: scenario.secondPhase,
+            streamed: true,
+            completionDelayMs: 100,
+          },
+        ]);
+        const originalCompleted = yield* Deferred.make<void>();
+        const harness = yield* makeCodexReplayHarness(transcript, (event) =>
+          event.type === "message.updated" && !event.message.streaming
+            ? Deferred.succeed(originalCompleted, undefined)
+            : Effect.void,
+        );
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make(`attempt-double-reply-${scenario.name}`),
+            text: "Reply with the requested recovery marker.",
+          }),
+        );
+        yield* Deferred.await(originalCompleted);
+        yield* TestClock.adjust("50 millis");
+        assert.equal(
+          new Set(assistantMessages(harness.events).map((event) => event.message.id)).size,
+          scenario.streams ? 2 : 1,
+        );
+        yield* TestClock.adjust("50 millis");
+        yield* harness.firstTerminal;
+
+        const latestMessages = new Map(
+          assistantMessages(harness.events).map((event) => [event.message.id, event.message]),
+        );
+        assert.deepEqual(
+          [...latestMessages.values()].map((message) => message.text),
+          scenario.duplicate ? [scenario.original] : [scenario.original, scenario.next],
+        );
+        assert.isTrue([...latestMessages.values()].every((message) => !message.streaming));
+        const latestItems = new Map(
+          harness.events.flatMap((event) =>
+            event.type === "turn_item.updated" && event.turnItem.type === "assistant_message"
+              ? [[event.turnItem.id, event.turnItem] as const]
+              : [],
+          ),
+        );
+        assert.equal(latestItems.size, latestMessages.size);
+        assert.isTrue([...latestItems.values()].every((item) => item.status === "completed"));
+        if (scenario.duplicate) {
+          assert.isFalse(
+            harness.events.some(
+              (event) =>
+                (event.type === "node.updated" &&
+                  event.node.nativeItemRef?.nativeId === "answer-next") ||
+                (event.type === "turn_item.updated" &&
+                  event.turnItem.nativeItemRef?.nativeId === "answer-next"),
+            ),
+          );
+        }
+      }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+    ),
+  );
+
+  it.effect("suppresses earlier commentary replayed after duplicate final answers", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const scenario = "codex-replayed-progress-after-final";
+        const transcript = finalAnswerTranscript(scenario, [
+          { id: "progress-first", text: "I found two coding-agent profiles.", phase: "commentary" },
+          {
+            id: "progress-second",
+            text: "The overrides are removed. Checking the configuration.",
+            phase: "commentary",
+          },
+          { id: "answer-original", text: "Removed both model overrides. Validation passed." },
+          { id: "answer-repeat", text: "Removed both model overrides. Validation passed.\n" },
+          {
+            id: "progress-first-repeat",
+            text: "I found two coding-agent profiles.",
+            phase: "commentary",
+            streamed: true,
+            completionDelayMs: 100,
+          },
+          {
+            id: "progress-second-repeat",
+            text: "The overrides are removed. Checking the configuration.",
+            phase: "commentary",
+            streamed: true,
+            completionDelayMs: 100,
+          },
+        ]);
+        const finalCompleted = yield* Deferred.make<void>();
+        const harness = yield* makeCodexReplayHarness(transcript, (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.nativeItemRef?.nativeId === "answer-original"
+            ? Deferred.succeed(finalCompleted, undefined)
+            : Effect.void,
+        );
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make(scenario),
+            text: "Reply with the requested recovery marker.",
+          }),
+        );
+        yield* Deferred.await(finalCompleted);
+        for (let tick = 0; tick < 4; tick++) yield* TestClock.adjust("50 millis");
+        yield* harness.firstTerminal;
+        assert.deepEqual(
+          assistantMessages(harness.events).map((event) => event.message.text),
+          [
+            "I found two coding-agent profiles.",
+            "The overrides are removed. Checking the configuration.",
+            "Removed both model overrides. Validation passed.",
+          ],
+        );
+        assert.lengthOf(
+          harness.events.filter(
+            (event) =>
+              event.type === "turn_item.updated" && event.turnItem.type === "assistant_message",
+          ),
+          3,
+        );
+        assert.lengthOf(
+          harness.events.filter(
+            (event) => event.type === "node.updated" && event.node.kind === "assistant_message",
+          ),
+          3,
+        );
+      }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+    ),
+  );
+
+  it.effect("streams a possible duplicate as soon as its prefix diverges", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const scenario = "codex-final-prefix-diverges";
+        const transcript = finalAnswerTranscript(scenario, [
+          { id: "answer-original", text: "Report: working", phase: "commentary" },
+          {
+            id: "answer-next",
+            text: "Report: complete",
+            streamed: true,
+            completionDelayMs: 100,
+          },
+        ]);
+        const deltaIndex = transcript.entries.findIndex(
+          (entry) =>
+            entry.type === "emit_inbound" && entry.label === "item/agentMessage/delta/answer-next",
+        );
+        const delta = (text: string, afterMs?: number): CodexReplay.CodexAppServerReplayEntry => ({
+          type: "emit_inbound",
+          ...(afterMs === undefined ? {} : { afterMs }),
+          frame: {
+            method: "item/agentMessage/delta",
+            params: {
+              threadId: `native-${scenario}-thread`,
+              turnId: `native-${scenario}-turn`,
+              itemId: "answer-next",
+              delta: text,
+            },
+          },
+        });
+        const originalCompleted = yield* Deferred.make<void>();
+        const nextStreaming = yield* Deferred.make<void>();
+        const harness = yield* makeCodexReplayHarness(
+          {
+            ...transcript,
+            entries: [
+              ...transcript.entries.slice(0, deltaIndex),
+              delta("Report: "),
+              delta("complete", 100),
+              ...transcript.entries.slice(deltaIndex + 1),
+            ],
+          },
+          (event) => {
+            if (event.type !== "message.updated") return Effect.void;
+            return event.message.streaming
+              ? Deferred.succeed(nextStreaming, undefined)
+              : Deferred.succeed(originalCompleted, undefined);
+          },
+        );
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make(scenario),
+            text: "Reply with the requested recovery marker.",
+          }),
+        );
+        yield* Deferred.await(originalCompleted);
+        yield* TestClock.adjust("50 millis");
+        assert.lengthOf(assistantMessages(harness.events), 1);
+        yield* TestClock.adjust("50 millis");
+        yield* TestClock.adjust("50 millis");
+        yield* Deferred.await(nextStreaming);
+        assert.deepEqual(
+          assistantMessages(harness.events).map((event) => event.message.text),
+          ["Report: working", "Report: complete"],
+        );
+        assert.isTrue(assistantMessages(harness.events)[1]!.message.streaming);
+        yield* TestClock.adjust("50 millis");
+        yield* harness.firstTerminal;
+        assert.isFalse(assistantMessages(harness.events).at(-1)!.message.streaming);
+      }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+    ),
+  );
+
+  it.effect("preserves identical final answers in separate native turns", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const scenario = "codex-identical-separate-turns";
+        const first = finalAnswerTranscript(scenario, [
+          { id: "answer-first-turn", text: "CODEX_RECOVERY_OK" },
+        ]);
+        const second = finalAnswerTranscript(`${scenario}-second`, [
+          { id: "answer-second-turn", text: "CODEX_RECOVERY_OK" },
+        ]);
+        const secondEntries = second.entries.slice(5).map((entry) => {
+          if (entry.type !== "emit_inbound" && entry.type !== "expect_outbound") return entry;
+          const frame = entry.frame;
+          if (!Predicate.isObject(frame)) return entry;
+          return {
+            ...entry,
+            frame: {
+              ...frame,
+              ...(frame.id === undefined ? {} : { id: 4 }),
+              ...(Predicate.isObject(frame.params)
+                ? { params: { ...frame.params, threadId: `native-${scenario}-thread` } }
+                : {}),
+            },
+          };
+        });
+        const secondTerminal = yield* Deferred.make<void>();
+        let terminalCount = 0;
+        const harness = yield* makeCodexReplayHarness(
+          {
+            ...first,
+            entries: [...first.entries, ...secondEntries],
+          },
+          (event) =>
+            event.type === "turn.terminal" && ++terminalCount === 2
+              ? Deferred.succeed(secondTerminal, undefined)
+              : Effect.void,
+        );
+        for (const ordinal of [1, 2]) {
+          yield* harness.runtime.startTurn({
+            ...makeCodexTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now: yield* DateTime.now,
+              attemptId: RunAttemptId.make(`${scenario}-${ordinal}`),
+              text: "Reply with the requested recovery marker.",
+            }),
+            runOrdinal: ordinal,
+            providerTurnOrdinal: ordinal,
+          });
+          yield* ordinal === 1 ? harness.firstTerminal : Deferred.await(secondTerminal);
+        }
+        assert.deepEqual(
+          assistantMessages(harness.events).map((event) => event.message.text),
+          ["CODEX_RECOVERY_OK", "CODEX_RECOVERY_OK"],
+        );
+        assert.equal(
+          new Set(assistantMessages(harness.events).map((event) => event.message.id)).size,
+          2,
+        );
+      }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+    ),
+  );
+
   it.effect("suppresses a trailing empty final answer after a non-empty final answer", () =>
     Effect.scoped(
       Effect.gen(function* () {
