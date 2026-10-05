@@ -109,6 +109,7 @@ export class PrimaryEnvironmentPairingCredentialRequiredError extends Schema.Tag
 const isEnvironmentHttpCommonError = Schema.is(EnvironmentHttpCommonError);
 
 export interface ServerPairingLinkRecord {
+  readonly reusable?: boolean;
   readonly id: string;
   readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
   readonly subject: string;
@@ -351,6 +352,7 @@ export async function submitServerAuthCredential(credential: string): Promise<vo
 }
 
 export async function createServerPairingCredential(input?: {
+  readonly reusable?: boolean;
   readonly label?: string;
   readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
 }): Promise<AuthPairingCredentialResult> {
@@ -364,6 +366,7 @@ export async function createServerPairingCredential(input?: {
             payload: {
               ...(trimmedLabel ? { label: trimmedLabel } : {}),
               ...(input?.scopes ? { scopes: input.scopes } : {}),
+              ...(input?.reusable ? { reusable: true } : {}),
             },
           }),
         ),

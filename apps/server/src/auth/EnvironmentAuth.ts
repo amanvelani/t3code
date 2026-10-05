@@ -44,6 +44,7 @@ const DEFAULT_SESSION_SUBJECT = "cli-issued-session";
 export const INTERNAL_ADMINISTRATIVE_BOOTSTRAP_SUBJECT = "administrative-bootstrap";
 
 export interface IssuedPairingLink {
+  readonly reusable?: boolean;
   readonly id: string;
   readonly credential: string;
   readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
@@ -446,6 +447,7 @@ export class EnvironmentAuth extends Context.Service<
       ServerAuthInvalidCredentialError | ServerAuthInvalidRequestError | ServerAuthInternalError
     >;
     readonly createPairingLink: (input?: {
+      readonly reusable?: boolean;
       readonly ttl?: Duration.Duration;
       readonly label?: string;
       readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
@@ -859,6 +861,7 @@ export const make = Effect.gen(function* () {
       );
 
   const issuePairingCredentialForSubject = (input: {
+    readonly reusable?: boolean;
     readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
     readonly subject: string;
     readonly label?: string;
@@ -867,6 +870,7 @@ export const make = Effect.gen(function* () {
     createPairingLink({
       scopes: input.scopes,
       subject: input.subject,
+      ...(input.reusable ? { reusable: true } : {}),
       ...(input.label ? { label: input.label } : {}),
       ...(input.purpose ? { purpose: input.purpose } : {}),
     }).pipe(
@@ -875,6 +879,7 @@ export const make = Effect.gen(function* () {
           ({
             id: issued.id,
             credential: issued.credential,
+            ...(issued.reusable ? { reusable: true } : {}),
             ...(issued.label ? { label: issued.label } : {}),
             expiresAt: issued.expiresAt,
           }) satisfies AuthPairingCredentialResult,
@@ -886,9 +891,10 @@ export const make = Effect.gen(function* () {
   )(
     function* (input) {
       const createdAt = yield* DateTime.now;
-      const issued = yield* bootstrapCredentials.issueOneTimeToken({
+      const issued = yield* bootstrapCredentials.issuePairingToken({
+        ...(input?.reusable ? { reusable: true } : {}),
         scopes: input?.scopes ?? AuthStandardClientScopes,
-        subject: input?.subject ?? "one-time-token",
+        subject: input?.subject ?? (input?.reusable ? "reusable-token" : "one-time-token"),
         ...(input?.ttl ? { ttl: input.ttl } : {}),
         ...(input?.label ? { label: input.label } : {}),
         ...(input?.proofKeyThumbprint ? { proofKeyThumbprint: input.proofKeyThumbprint } : {}),
@@ -897,8 +903,9 @@ export const make = Effect.gen(function* () {
       return {
         id: issued.id,
         credential: issued.credential,
+        ...(issued.reusable ? { reusable: true } : {}),
         scopes: input?.scopes ?? AuthStandardClientScopes,
-        subject: input?.subject ?? "one-time-token",
+        subject: input?.subject ?? (input?.reusable ? "reusable-token" : "one-time-token"),
         ...(issued.label ? { label: issued.label } : {}),
         createdAt: DateTime.toUtc(createdAt),
         expiresAt: DateTime.toUtc(issued.expiresAt),
@@ -982,7 +989,8 @@ export const make = Effect.gen(function* () {
   const issuePairingCredential: EnvironmentAuth["Service"]["issuePairingCredential"] = (input) =>
     issuePairingCredentialForSubject({
       scopes: input?.scopes ?? AuthStandardClientScopes,
-      subject: "one-time-token",
+      subject: input?.reusable ? "reusable-token" : "one-time-token",
+      ...(input?.reusable ? { reusable: true } : {}),
       ...(input?.label ? { label: input.label } : {}),
     }).pipe(Effect.withSpan("EnvironmentAuth.issuePairingCredential"));
 

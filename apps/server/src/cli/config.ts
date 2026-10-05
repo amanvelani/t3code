@@ -199,7 +199,7 @@ export interface CliServerFlags {
   readonly logWebSocketEvents: Option.Option<boolean>;
   readonly tailscaleServeEnabled: Option.Option<boolean>;
   readonly tailscaleServePort: Option.Option<number>;
-  readonly devTunnelEnabled?: Option.Option<boolean>;
+  readonly devTunnelEnabled: Option.Option<boolean>;
 }
 
 export interface CliAuthLocationFlags {
@@ -503,6 +503,7 @@ export const resolveCliAuthConfig = (
       logWebSocketEvents: Option.none(),
       tailscaleServeEnabled: Option.none(),
       tailscaleServePort: Option.none(),
+      devTunnelEnabled: Option.none(),
     },
     cliLogLevel,
   );

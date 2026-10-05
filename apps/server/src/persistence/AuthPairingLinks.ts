@@ -6,7 +6,7 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
-import { AuthEnvironmentScopes } from "@t3tools/contracts";
+import { AuthEnvironmentScopes, ServerAuthBootstrapMethod } from "@t3tools/contracts";
 
 import {
   type AuthPairingLinkRepositoryError,
@@ -18,7 +18,8 @@ import {
 export const AuthPairingLinkRecord = Schema.Struct({
   id: Schema.String,
   credential: Schema.String,
-  method: Schema.Literals(["desktop-bootstrap", "one-time-token"]),
+  method: ServerAuthBootstrapMethod,
+  reusable: Schema.BooleanFromBit,
   scopes: Schema.fromJsonString(AuthEnvironmentScopes),
   subject: Schema.String,
   label: Schema.NullOr(Schema.String),
@@ -33,7 +34,8 @@ export type AuthPairingLinkRecord = typeof AuthPairingLinkRecord.Type;
 export const CreateAuthPairingLinkInput = Schema.Struct({
   id: Schema.String,
   credential: Schema.String,
-  method: Schema.Literals(["desktop-bootstrap", "one-time-token"]),
+  method: ServerAuthBootstrapMethod,
+  reusable: Schema.BooleanFromBit,
   scopes: AuthEnvironmentScopes,
   subject: Schema.String,
   label: Schema.NullOr(Schema.String),
@@ -71,6 +73,7 @@ const AuthPairingLinkRawDbRow = Schema.Struct({
   id: Schema.String,
   credential: Schema.Unknown,
   method: Schema.Unknown,
+  reusable: Schema.Unknown,
   scopes: Schema.Unknown,
   subject: Schema.Unknown,
   label: Schema.Unknown,
@@ -131,6 +134,7 @@ export const make = Effect.gen(function* () {
           id,
           credential,
           method,
+          reusable,
           scopes,
           subject,
           label,
@@ -144,6 +148,7 @@ export const make = Effect.gen(function* () {
           ${input.id},
           ${input.credential},
           ${input.method},
+          ${input.reusable},
           ${JSON.stringify(input.scopes)},
           ${input.subject},
           ${input.label},
@@ -162,7 +167,7 @@ export const make = Effect.gen(function* () {
     execute: ({ credential, proofKeyThumbprint, consumedAt, now }) =>
       sql`
         UPDATE auth_pairing_links
-        SET consumed_at = ${consumedAt}
+        SET consumed_at = CASE WHEN reusable = 1 THEN NULL ELSE ${consumedAt} END
         WHERE credential = ${credential}
           AND revoked_at IS NULL
           AND consumed_at IS NULL
@@ -175,6 +180,7 @@ export const make = Effect.gen(function* () {
           id AS "id",
           credential AS "credential",
           method AS "method",
+          reusable AS "reusable",
           scopes AS "scopes",
           subject AS "subject",
           label AS "label",
@@ -195,6 +201,7 @@ export const make = Effect.gen(function* () {
           id AS "id",
           credential AS "credential",
           method AS "method",
+          reusable AS "reusable",
           scopes AS "scopes",
           subject AS "subject",
           label AS "label",
@@ -234,6 +241,7 @@ export const make = Effect.gen(function* () {
           id AS "id",
           credential AS "credential",
           method AS "method",
+          reusable AS "reusable",
           scopes AS "scopes",
           subject AS "subject",
           label AS "label",

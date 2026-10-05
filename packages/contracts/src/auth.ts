@@ -49,8 +49,9 @@ export type ServerAuthPolicy = typeof ServerAuthPolicy.Type;
  * Current methods:
  * - `desktop-bootstrap`: a trusted local desktop handoff, used so the desktop
  *   shell can pair the renderer without a login screen
- * - `one-time-token`: a short-lived pairing token, suitable for manual pairing
- *   flows such as `/pair?token=...`
+ * - `one-time-token`: a pairing token, suitable for manual pairing flows such as
+ *   `/pair?token=...`. The name is retained for client compatibility; a grant
+ *   may explicitly allow reuse.
  */
 export const ServerAuthBootstrapMethod = Schema.Literals(["desktop-bootstrap", "one-time-token"]);
 export type ServerAuthBootstrapMethod = typeof ServerAuthBootstrapMethod.Type;
@@ -211,6 +212,7 @@ export const AuthWebSocketTicketResult = Schema.Struct({
 export type AuthWebSocketTicketResult = typeof AuthWebSocketTicketResult.Type;
 
 export const AuthPairingCredentialResult = Schema.Struct({
+  reusable: Schema.optionalKey(Schema.Boolean),
   id: TrimmedNonEmptyString,
   credential: TrimmedNonEmptyString,
   label: Schema.optionalKey(TrimmedNonEmptyString),
@@ -220,6 +222,7 @@ export type AuthPairingCredentialResult = typeof AuthPairingCredentialResult.Typ
 
 // Read models contain metadata only. Credentials are returned by creation alone.
 export const AuthPairingLink = Schema.Struct({
+  reusable: Schema.optionalKey(Schema.Boolean),
   id: TrimmedNonEmptyString,
   scopes: AuthEnvironmentScopes,
   subject: TrimmedNonEmptyString,
@@ -340,6 +343,7 @@ export const AuthRevokeClientSessionInput = Schema.Struct({
 export type AuthRevokeClientSessionInput = typeof AuthRevokeClientSessionInput.Type;
 
 export const AuthCreatePairingCredentialInput = Schema.Struct({
+  reusable: Schema.optionalKey(Schema.Boolean),
   label: Schema.optionalKey(TrimmedNonEmptyString),
   scopes: Schema.optionalKey(AuthEnvironmentScopes),
 });

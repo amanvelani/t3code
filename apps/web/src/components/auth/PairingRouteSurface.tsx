@@ -284,12 +284,12 @@ function describeSupportedMethods(bootstrapMethods: ReadonlyArray<string>): stri
     bootstrapMethods.includes("desktop-bootstrap") &&
     bootstrapMethods.includes("one-time-token")
   ) {
-    return "Desktop-managed pairing and one-time pairing tokens are both accepted for this environment.";
+    return "Desktop-managed pairing and pairing tokens are both accepted for this environment.";
   }
 
   if (bootstrapMethods.includes("desktop-bootstrap")) {
     return "This environment is desktop-managed. Open it from the desktop app or paste a bootstrap credential if one was issued explicitly.";
   }
 
-  return "This environment accepts one-time pairing tokens. Pairing links can open this page directly, or you can paste the token here.";
+  return "This environment accepts pairing tokens. Pairing links can open this page directly, or you can paste the token here.";
 }

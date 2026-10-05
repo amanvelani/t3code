@@ -12,6 +12,7 @@ import * as Migrator from "effect/unstable/sql/Migrator";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { reconcileForkMigrationHistory } from "./reconcileForkMigrationHistory.ts";
+import Migration0058 from "./Migrations/058_ReusablePairingLinks.ts";
 import Migration0057 from "./Migrations/057_RemoveAuthSessionIdentifyingMetadata.ts";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
 
@@ -143,6 +144,7 @@ export const migrationEntries = [
   [55, "OrchestrationV2", Migration0055],
   [56, "RemoveRedundantProjectionIndexes", Migration0056],
   [57, "RemoveAuthSessionIdentifyingMetadata", Migration0057],
+  [58, "ReusablePairingLinks", Migration0058],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

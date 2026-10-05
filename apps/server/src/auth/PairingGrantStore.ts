@@ -174,6 +174,7 @@ export const BootstrapCredentialError = Schema.Union([
 export type BootstrapCredentialError = typeof BootstrapCredentialError.Type;
 
 export interface IssuedBootstrapCredential {
+  readonly reusable?: boolean;
   readonly id: string;
   readonly credential: string;
   readonly label?: string;
@@ -194,7 +195,8 @@ export type BootstrapCredentialChange =
 export class PairingGrantStore extends Context.Service<
   PairingGrantStore,
   {
-    readonly issueOneTimeToken: (input?: {
+    readonly issuePairingToken: (input?: {
+      readonly reusable?: boolean;
       readonly ttl?: Duration.Duration;
       readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
       readonly subject?: string;
@@ -334,23 +336,17 @@ export const make = Effect.gen(function* () {
       const now = yield* DateTime.now;
       const rows = yield* pairingLinks.listActive({ now });
 
-      return rows.map((row) =>
-        row.label
-          ? ({
-              id: row.id,
-              scopes: row.scopes,
-              subject: row.subject,
-              label: row.label,
-              createdAt: row.createdAt,
-              expiresAt: row.expiresAt,
-            } satisfies AuthPairingLink)
-          : ({
-              id: row.id,
-              scopes: row.scopes,
-              subject: row.subject,
-              createdAt: row.createdAt,
-              expiresAt: row.expiresAt,
-            } satisfies AuthPairingLink),
+      return rows.map(
+        (row) =>
+          ({
+            id: row.id,
+            scopes: row.scopes,
+            subject: row.subject,
+            ...(row.label ? { label: row.label } : {}),
+            ...(row.reusable ? { reusable: true } : {}),
+            createdAt: row.createdAt,
+            expiresAt: row.expiresAt,
+          }) satisfies AuthPairingLink,
       );
     },
     Effect.mapError((cause) => new ActivePairingLinksLoadError({ cause })),
@@ -372,8 +368,8 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  const issueOneTimeToken: PairingGrantStore["Service"]["issueOneTimeToken"] = Effect.fn(
-    "PairingGrantStore.issueOneTimeToken",
+  const issuePairingToken: PairingGrantStore["Service"]["issuePairingToken"] = Effect.fn(
+    "PairingGrantStore.issuePairingToken",
   )(function* (input) {
     const id = yield* crypto.randomUUIDv4.pipe(
       Effect.mapError(
@@ -384,22 +380,28 @@ export const make = Effect.gen(function* () {
     const isDevStartupToken = config.devUrl !== undefined && input?.purpose === "startup";
     const ttl =
       input?.ttl ??
-      (isDevStartupToken ? DEV_STARTUP_TTL_HOURS : DEFAULT_ONE_TIME_TOKEN_TTL_MINUTES);
+      (input?.reusable
+        ? Duration.days(30)
+        : isDevStartupToken
+          ? DEV_STARTUP_TTL_HOURS
+          : DEFAULT_ONE_TIME_TOKEN_TTL_MINUTES);
     const now = yield* DateTime.now;
     const expiresAt = DateTime.add(now, { milliseconds: Duration.toMillis(ttl) });
     const issued: IssuedBootstrapCredential = {
+      ...(input?.reusable ? { reusable: true } : {}),
       id,
       credential,
       ...(input?.label ? { label: input.label } : {}),
       ...(input?.proofKeyThumbprint ? { proofKeyThumbprint: input.proofKeyThumbprint } : {}),
       expiresAt,
     };
-    const subject = input?.subject ?? "one-time-token";
+    const subject = input?.subject ?? (input?.reusable ? "reusable-token" : "one-time-token");
     yield* pairingLinks
       .create({
         id,
         credential,
         method: "one-time-token",
+        reusable: input?.reusable ?? false,
         scopes: input?.scopes ?? AuthStandardClientScopes,
         subject,
         label: input?.label ?? null,
@@ -421,7 +423,8 @@ export const make = Effect.gen(function* () {
     yield* emitUpsert({
       id,
       scopes: input?.scopes ?? AuthStandardClientScopes,
-      subject: input?.subject ?? "one-time-token",
+      subject,
+      ...(input?.reusable ? { reusable: true } : {}),
       ...(input?.label ? { label: input.label } : {}),
       createdAt: now,
       expiresAt,
@@ -519,7 +522,9 @@ export const make = Effect.gen(function* () {
         .pipe(Effect.mapError((cause) => new BootstrapCredentialConsumeAvailableError({ cause })));
 
       if (Option.isSome(consumed)) {
-        yield* emitRemoved(consumed.value.id);
+        if (!consumed.value.reusable) {
+          yield* emitRemoved(consumed.value.id);
+        }
         return {
           method: consumed.value.method,
           scopes: consumed.value.scopes,
@@ -563,7 +568,7 @@ export const make = Effect.gen(function* () {
   );
 
   return PairingGrantStore.of({
-    issueOneTimeToken,
+    issuePairingToken,
     listActive,
     get streamChanges() {
       return Stream.fromPubSub(changesPubSub);

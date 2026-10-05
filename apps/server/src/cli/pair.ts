@@ -434,13 +434,15 @@ const mintPairingLink = Effect.fn("pair.mintPairingLink")(function* (input: {
   readonly config: ServerConfig.ServerConfig["Service"];
   readonly ttl: Option.Option<Duration.Duration>;
   readonly label: Option.Option<string>;
+  readonly reusable: boolean;
 }) {
   return yield* Effect.gen(function* () {
     const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;
     return yield* environmentAuth.createPairingLink({
       scopes: AuthStandardClientScopes,
-      subject: "one-time-token",
-      label: Option.getOrElse(input.label, () => "t3 pair"),
+      subject: input.reusable ? "reusable-token" : "one-time-token",
+      reusable: input.reusable,
+      label: Option.getOrElse(input.label, () => (input.reusable ? "Dev Tunnels" : "t3 pair")),
       ...(Option.isSome(input.ttl) ? { ttl: input.ttl.value } : {}),
     });
   }).pipe(
@@ -456,7 +458,7 @@ const mintPairingLink = Effect.fn("pair.mintPairingLink")(function* (input: {
 const ttlFlag = Flag.String("ttl").pipe(
   Flag.withSchema(DurationFromString),
   Flag.withDescription(
-    "Token TTL, for example `5m`, `1h`, or `15 minutes`. Defaults to 5 minutes.",
+    "Token TTL, for example `5m`, `1h`, or `15 minutes`. Defaults to 30 days for Dev Tunnels, otherwise 5 minutes.",
   ),
   Flag.optional,
 );
@@ -539,8 +541,18 @@ export const pairCommand = Command.make("pair", {
       }
 
       const config = yield* makePairServerConfig({ target, logLevel });
-      const issued = yield* mintPairingLink({ config, ttl: flags.ttl, label: flags.label });
+      const issued = yield* mintPairingLink({
+        config,
+        ttl: flags.ttl,
+        label: flags.label,
+        reusable: flags.devTunnel,
+      });
       const pairingUrl = buildPairingUrl(pairingBaseUrl, issued.credential);
+      if (issued.reusable) {
+        notes.push(
+          "This link can pair multiple devices until it expires or is revoked in Settings > Connections.",
+        );
+      }
 
       yield* Console.log(
         formatPairOutput({

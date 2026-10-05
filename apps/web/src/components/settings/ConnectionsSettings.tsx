@@ -782,6 +782,11 @@ const PairingLinkListRow = memo(function PairingLinkListRow({
               <TooltipPopup side="top">{expiresAbsolute}</TooltipPopup>
             </Tooltip>
             <span aria-hidden> · </span>
+            {pairingLink.reusable ? (
+              <>
+                Reusable<span aria-hidden> · </span>
+              </>
+            ) : null}
             <AccessScopeSummary scopes={pairingLink.scopes} label="Pairing link scopes" />
           </p>
           {!credential ? (
@@ -3531,7 +3536,10 @@ export function ConnectionsSettings() {
             {canManageLocalBackend &&
             primaryEnvironmentId !== null &&
             primaryServerConfig?.environment.capabilities.devTunnels ? (
-              <DevTunnelSettings environmentId={primaryEnvironmentId} />
+              <DevTunnelSettings
+                environmentId={primaryEnvironmentId}
+                onPairingLinkCreated={handlePairingLinkCreated}
+              />
             ) : null}
           </SettingsSection>
 

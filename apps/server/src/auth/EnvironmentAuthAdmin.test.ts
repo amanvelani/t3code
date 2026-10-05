@@ -65,6 +65,46 @@ it.layer(NodeServices.layer)("EnvironmentAuth administrative operations", (it) =
     }).pipe(Effect.provide(makeEnvironmentAuthLayer())),
   );
 
+  it.effect("pairs multiple browsers with one reusable link and revokes future pairing", () =>
+    Effect.gen(function* () {
+      const auth = yield* EnvironmentAuth.EnvironmentAuth;
+      const issued = yield* auth.issuePairingCredential({
+        reusable: true,
+        label: "Dev Tunnels",
+        scopes: ["orchestration:read"],
+      });
+      const first = yield* auth.createBrowserSession(issued.credential, {
+        label: "Phone",
+        deviceType: "mobile",
+      });
+      const second = yield* auth.createBrowserSession(issued.credential, {
+        label: "Tablet",
+        deviceType: "tablet",
+      });
+      expect(first.sessionToken).not.toBe(second.sessionToken);
+      expect(issued.reusable).toBe(true);
+      const links = yield* auth.listPairingLinks();
+      expect(links[0]?.reusable).toBe(true);
+      const sessions = yield* auth.listSessions();
+      expect(sessions).toHaveLength(2);
+      expect(sessions.map((session) => session.client.deviceType).sort()).toEqual([
+        "mobile",
+        "tablet",
+      ]);
+      expect(
+        sessions.every(
+          (session) => session.scopes.length === 1 && session.scopes[0] === "orchestration:read",
+        ),
+      ).toBe(true);
+      yield* auth.revokePairingLink(issued.id);
+      const rejected = yield* Effect.flip(
+        auth.createBrowserSession(issued.credential, { deviceType: "unknown" }),
+      );
+      expect(rejected._tag).toBe("ServerAuthInvalidCredentialError");
+      expect(yield* auth.listSessions()).toHaveLength(2);
+    }).pipe(Effect.provide(makeEnvironmentAuthLayer())),
+  );
+
   it.effect("issues bearer access token sessions without exposing raw tokens", () =>
     Effect.gen(function* () {
       const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;

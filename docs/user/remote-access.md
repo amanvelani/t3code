@@ -150,7 +150,10 @@ reuses it when the server restarts. Turn the setting off to stop access through 
 
 Open the displayed tunnel address in the other device's browser and sign in with
 the same Microsoft or GitHub account. Then use **Create pairing link** on the host,
-or run `t3 pair --dev-tunnel`, and open that one-time link in the signed-in browser.
+or run `t3 pair --dev-tunnel`, and open that reusable link in the signed-in browser.
+The same link can pair multiple devices for 30 days. Revoke unused links under
+**Settings → Connections → Authorized clients**; already paired devices stay connected
+until their client access is revoked. `--ttl` overrides the link expiry when using the CLI.
 T3 Code and the host machine must stay running while you work.
 
 Private tunnel sign-in works through the directly served browser client. The hosted

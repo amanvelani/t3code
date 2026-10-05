@@ -61,7 +61,7 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
   it.effect("issues pairing tokens in a short manual-entry format", () =>
     Effect.gen(function* () {
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
-      const issued = yield* bootstrapCredentials.issueOneTimeToken();
+      const issued = yield* bootstrapCredentials.issuePairingToken();
 
       expect(issued.credential).toMatch(/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{12}$/);
     }).pipe(Effect.provide(makePairingGrantStoreLayer())),
@@ -70,7 +70,7 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
   it.effect("issues one-time bootstrap tokens that can only be consumed once", () =>
     Effect.gen(function* () {
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
-      const issued = yield* bootstrapCredentials.issueOneTimeToken({ label: "Julius iPhone" });
+      const issued = yield* bootstrapCredentials.issuePairingToken({ label: "Julius iPhone" });
       const first = yield* bootstrapCredentials.consume(issued.credential);
       const second = yield* Effect.flip(bootstrapCredentials.consume(issued.credential));
 
@@ -93,7 +93,7 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
   it.effect("atomically consumes a one-time token when multiple requests race", () =>
     Effect.gen(function* () {
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
-      const token = yield* bootstrapCredentials.issueOneTimeToken();
+      const token = yield* bootstrapCredentials.issuePairingToken();
       const results = yield* Effect.all(
         Array.from({ length: 8 }, () =>
           Effect.result(bootstrapCredentials.consume(token.credential)),
@@ -115,10 +115,72 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
     }).pipe(Effect.provide(makePairingGrantStoreLayer())),
   );
 
+  it.effect("reuses a persisted link across devices and store instances until revoked", () =>
+    Effect.gen(function* () {
+      const firstStore = yield* PairingGrantStore.make;
+      const issued = yield* firstStore.issuePairingToken({ reusable: true, label: "Dev Tunnels" });
+      const secondStore = yield* PairingGrantStore.make;
+      const grants = yield* Effect.all(
+        Array.from({ length: 8 }, () => secondStore.consume(issued.credential)),
+        { concurrency: "unbounded" },
+      );
+      expect(grants).toHaveLength(8);
+      expect(grants.every((grant) => grant.method === "one-time-token")).toBe(true);
+      expect(grants.every((grant) => grant.label === "Dev Tunnels")).toBe(true);
+      const active = yield* secondStore.listActive();
+      expect(active).toHaveLength(1);
+      expect(active[0]?.id).toBe(issued.id);
+      expect(active[0]?.reusable).toBe(true);
+      expect(active[0]).not.toHaveProperty("credential");
+      expect(yield* secondStore.revoke(issued.id)).toBe(true);
+      expect(yield* firstStore.listActive()).toHaveLength(0);
+      const rejected = yield* Effect.flip(firstStore.consume(issued.credential));
+      expect(rejected._tag).toBe("UnavailableBootstrapCredentialError");
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.merge(
+          AuthPairingLinks.layer.pipe(Layer.provide(SqlitePersistenceMemory)),
+          makeServerConfigLayer(),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("expires reusable links after 30 days without consuming them on use", () =>
+    Effect.gen(function* () {
+      const grants = yield* PairingGrantStore.PairingGrantStore;
+      const issued = yield* grants.issuePairingToken({ reusable: true });
+      yield* grants.consume(issued.credential);
+      yield* TestClock.adjust(Duration.days(29));
+      yield* grants.consume(issued.credential);
+      yield* TestClock.adjust(Duration.days(1));
+      const rejected = yield* Effect.flip(grants.consume(issued.credential));
+      expect(rejected._tag).toBe("ExpiredBootstrapCredentialError");
+      expect(yield* grants.listActive()).toHaveLength(0);
+    }).pipe(
+      Effect.provide(makePairingGrantStoreLayer().pipe(Layer.provideMerge(TestClock.layer()))),
+    ),
+  );
+
+  it.effect("keeps reusable links proof-bound when a key is specified", () =>
+    Effect.gen(function* () {
+      const grants = yield* PairingGrantStore.PairingGrantStore;
+      const issued = yield* grants.issuePairingToken({
+        reusable: true,
+        proofKeyThumbprint: "allowed-key",
+      });
+      const rejected = yield* Effect.flip(grants.consume(issued.credential));
+      expect(rejected._tag).toBe("BootstrapCredentialProofKeyMismatchError");
+      yield* grants.consume(issued.credential, { proofKeyThumbprint: "allowed-key" });
+      yield* grants.consume(issued.credential, { proofKeyThumbprint: "allowed-key" });
+    }).pipe(Effect.provide(makePairingGrantStoreLayer())),
+  );
+
   it.effect("requires the bound proof key thumbprint when present", () =>
     Effect.gen(function* () {
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
-      const token = yield* bootstrapCredentials.issueOneTimeToken({
+      const token = yield* bootstrapCredentials.issuePairingToken({
         proofKeyThumbprint: "client-proof-key-thumbprint",
       });
 
@@ -185,12 +247,9 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
       expect(expired.message).toContain("Bootstrap credential expired");
     }).pipe(
       Effect.provide(
-        Layer.merge(
-          makePairingGrantStoreLayer({
-            desktopBootstrapToken: "desktop-bootstrap-token",
-          }),
-          TestClock.layer(),
-        ),
+        makePairingGrantStoreLayer({
+          desktopBootstrapToken: "desktop-bootstrap-token",
+        }).pipe(Layer.provideMerge(TestClock.layer())),
       ),
     ),
   );
@@ -204,7 +263,7 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
         Effect.forkScoped({ startImmediately: true }),
       );
       for (const input of [{}, { label: "Synthetic phone" }]) {
-        const issued = yield* grants.issueOneTimeToken(input);
+        const issued = yield* grants.issuePairingToken(input);
         const change = yield* Queue.take(changes);
         expect(change?.type).toBe("pairingLinkUpserted");
         if (change?.type !== "pairingLinkUpserted")
@@ -220,11 +279,34 @@ it.layer(NodeServices.layer)("PairingGrantStore.layer", (it) => {
     }).pipe(Effect.scoped, Effect.provide(makePairingGrantStoreLayer())),
   );
 
+  it.effect("does not remove a reusable link from client change streams after pairing", () =>
+    Effect.gen(function* () {
+      const grants = yield* PairingGrantStore.PairingGrantStore;
+      const changes = yield* Queue.unbounded<PairingGrantStore.BootstrapCredentialChange>();
+      yield* grants.streamChanges.pipe(
+        Stream.runForEach((change) => Queue.offer(changes, change)),
+        Effect.forkScoped({ startImmediately: true }),
+      );
+      const reusable = yield* grants.issuePairingToken({ reusable: true });
+      const created = yield* Queue.take(changes);
+      expect(created.type).toBe("pairingLinkUpserted");
+      yield* grants.consume(reusable.credential);
+      const nextLink = yield* grants.issuePairingToken();
+      const nextChange = yield* Queue.take(changes);
+      expect(nextChange.type).toBe("pairingLinkUpserted");
+      if (nextChange.type === "pairingLinkUpserted") {
+        expect(nextChange.pairingLink.id).toBe(nextLink.id);
+      }
+      yield* grants.revoke(reusable.id);
+      expect(yield* Queue.take(changes)).toEqual({ type: "pairingLinkRemoved", id: reusable.id });
+    }).pipe(Effect.scoped, Effect.provide(makePairingGrantStoreLayer())),
+  );
+
   it.effect("lists and revokes active pairing links", () =>
     Effect.gen(function* () {
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
-      const first = yield* bootstrapCredentials.issueOneTimeToken();
-      const second = yield* bootstrapCredentials.issueOneTimeToken({
+      const first = yield* bootstrapCredentials.issuePairingToken();
+      const second = yield* bootstrapCredentials.issuePairingToken({
         scopes: ["orchestration:read", "access:write"],
       });
 

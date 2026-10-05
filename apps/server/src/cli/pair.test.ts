@@ -3,6 +3,7 @@ import * as NodeHttp from "node:http";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeSqlite from "node:sqlite";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
@@ -173,6 +174,20 @@ describe("t3 pair", () => {
             "Pairing URL: https://pair-test-3773.usw2.devtunnels.ms/pair#token=",
           );
           assert.include(output, "sign in to the tunnel account");
+          assert.include(output, "This link can pair multiple devices");
+          const db = new NodeSqlite.DatabaseSync(
+            NodePath.join(baseDir, "userdata", "statev2.sqlite"),
+            { readOnly: true },
+          );
+          try {
+            const links = db.prepare("SELECT reusable FROM auth_pairing_links").all();
+            assert.deepStrictEqual(
+              links.map((link) => link.reusable),
+              [1],
+            );
+          } finally {
+            db.close();
+          }
         }),
       ),
     ).pipe(Effect.provide(CliRuntimeLayer)),

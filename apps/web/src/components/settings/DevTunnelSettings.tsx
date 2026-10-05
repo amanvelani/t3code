@@ -1,4 +1,8 @@
-import { AuthStandardClientScopes, type EnvironmentId } from "@t3tools/contracts";
+import {
+  AuthStandardClientScopes,
+  type AuthPairingCredentialResult,
+  type EnvironmentId,
+} from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useState } from "react";
 
@@ -23,7 +27,13 @@ import { Textarea } from "../ui/textarea";
 import { SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
-export function DevTunnelSettings({ environmentId }: { environmentId: EnvironmentId }) {
+export function DevTunnelSettings({
+  environmentId,
+  onPairingLinkCreated,
+}: {
+  environmentId: EnvironmentId;
+  onPairingLinkCreated: (issued: AuthPairingCredentialResult) => void;
+}) {
   const query = useEnvironmentQuery(serverEnvironment.devTunnel({ environmentId, input: {} }));
   const setEnabled = useAtomCommand(serverEnvironment.setDevTunnelEnabled, {
     reportFailure: false,
@@ -52,8 +62,10 @@ export function DevTunnelSettings({ environmentId }: { environmentId: Environmen
     try {
       const issued = await createServerPairingCredential({
         label: "Dev Tunnels",
+        reusable: true,
         scopes: AuthStandardClientScopes,
       });
+      onPairingLinkCreated(issued);
       setPairingUrl(
         setPairingTokenOnUrl(new URL("/pair", state.url), issued.credential).toString(),
       );
@@ -110,7 +122,9 @@ export function DevTunnelSettings({ environmentId }: { environmentId: Environmen
             <DialogTitle>Dev Tunnels pairing link</DialogTitle>
             <DialogDescription>
               On the other device, open the tunnel address and sign in with the same Microsoft or
-              GitHub account first. Then open this one-time link in that browser.
+              GitHub account first. Then open this reusable link in that browser. It works for
+              multiple devices for 30 days. Revoke it in Authorized clients when you no longer need
+              it.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
