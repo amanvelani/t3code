@@ -3057,21 +3057,16 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               const completedMessages = (yield* Ref.get(completedAgentMessageTextsByTurn)).get(
                 update.turnId,
               );
-              // Keep repeated progress updates during work, but suppress earlier
-              // commentary replayed after a final answer has already completed.
+              // Codex can repeat a complete answer in commentary before any final.
+              // Match completed text across phases, within this native turn only.
               const hasCompletedFinalAnswer = (completedMessages?.finalAnswerTexts.size ?? 0) > 0;
-              const deduplicateMessage = finalAnswerItem || hasCompletedFinalAnswer;
-              const normalizedText =
-                deduplicateMessage || update.completed
-                  ? normalizeCodexAnswerText(update.text)
-                  : update.text;
+              const normalizedText = normalizeCodexAnswerText(update.text);
               const duplicateCompletion =
-                deduplicateMessage &&
                 update.completed &&
                 (normalizedText.length === 0
                   ? finalAnswerItem && hasCompletedFinalAnswer
                   : completedMessages?.texts.has(normalizedText) === true);
-              if (deduplicateMessage && !update.completed) {
+              if (!update.completed) {
                 const firstFinalAnswerItemId = (yield* Ref.get(finalAnswerItemIdsByTurn))
                   .get(update.turnId)
                   ?.values()

@@ -3463,6 +3463,25 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       streams: false,
     },
     {
+      name: "a multi-paragraph report repeated as commentary before the final answer",
+      firstPhase: "commentary",
+      secondPhase: "commentary",
+      original:
+        "The fast Buddy changes are implemented. Build succeeded, but took 65m 52s.\n\n- Validation was skipped.\n- Packages and signed fragments were published.\n- Deployment was disabled.\n\nThe new signing PR addresses fragment signing.",
+      next: "The fast Buddy changes are implemented. Build succeeded, but took 65m 52s.\n\n- Validation was skipped.\n- Packages and signed fragments were published.\n- Deployment was disabled.\n\nThe new signing PR addresses fragment signing.\n",
+      duplicate: true,
+      streams: false,
+    },
+    {
+      name: "distinct commentary after commentary",
+      firstPhase: "commentary",
+      secondPhase: "commentary",
+      original: "Report: working",
+      next: "Report: complete",
+      duplicate: false,
+      streams: true,
+    },
+    {
       name: "distinct final answer after commentary",
       firstPhase: "commentary",
       secondPhase: "final_answer",
@@ -3513,8 +3532,8 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       secondPhase: "commentary",
       original: "Still working.",
       next: "Still working.",
-      duplicate: false,
-      streams: true,
+      duplicate: true,
+      streams: false,
     },
   ] as const)("handles double reply: $name", (scenario) =>
     Effect.scoped(
