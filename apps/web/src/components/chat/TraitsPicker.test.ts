@@ -202,11 +202,9 @@ describe("buildTraitsTriggerDisplay", () => {
     const defaultContext = { ...CONTEXT_WINDOW, currentValue: "default" };
     expect(display([EFFORT, defaultContext])).toEqual({
       label: "High",
-      speedIcon: null,
     });
     expect(display([EFFORT, CONTEXT_WINDOW])).toEqual({
       label: "High · 1M",
-      speedIcon: null,
     });
   });
 
