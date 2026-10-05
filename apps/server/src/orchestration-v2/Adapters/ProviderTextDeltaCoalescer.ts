@@ -7,6 +7,7 @@ import * as Semaphore from "effect/Semaphore";
 export interface ProviderTextDeltaUpdate {
   readonly turnId: string;
   readonly itemId: string;
+  readonly completedItemId?: string;
   readonly text: string;
   readonly completed: boolean;
 }
@@ -22,6 +23,7 @@ export interface ProviderTextDeltaCoalescer {
     readonly itemId: string;
     readonly finalText?: string;
     readonly emitEmpty?: boolean;
+    readonly reconcileFromItemIds?: ReadonlySet<string>;
   }) => Effect.Effect<string>;
   readonly flushTurn: (turnId: string) => Effect.Effect<void>;
 }
@@ -128,14 +130,36 @@ export const makeProviderTextDeltaCoalescer = Effect.fn("makeProviderTextDeltaCo
                 }
               }),
             ),
-      complete: ({ turnId, itemId, finalText, emitEmpty = true }) =>
+      complete: ({ turnId, itemId, finalText, emitEmpty = true, reconcileFromItemIds }) =>
         flushLock.withPermit(
           Effect.gen(function* () {
-            const key = providerTextBufferKey(turnId, itemId);
-            const existing = (yield* Ref.get(buffered)).get(key);
+            let key = providerTextBufferKey(turnId, itemId);
+            const current = yield* Ref.get(buffered);
+            let existing = current.get(key);
+            // Some providers change identity at completion. Only reconcile a unique,
+            // eligible unfinished stream whose exact text is a prefix of the answer.
+            if (existing === undefined && finalText !== undefined && reconcileFromItemIds) {
+              const candidates = Array.from(current.entries()).filter(
+                ([, message]) =>
+                  message.turnId === turnId &&
+                  reconcileFromItemIds.has(message.itemId) &&
+                  message.text.length > 0 &&
+                  finalText.startsWith(message.text),
+              );
+              if (candidates.length === 1) {
+                [key, existing] = candidates[0]!;
+              }
+            }
+            const canonicalItemId = existing?.itemId ?? itemId;
             const text = finalText !== undefined ? finalText : (existing?.text ?? "");
             if (emitEmpty || text.length > 0) {
-              yield* input.emit({ turnId, itemId, text, completed: true });
+              yield* input.emit({
+                turnId,
+                itemId: canonicalItemId,
+                ...(canonicalItemId === itemId ? {} : { completedItemId: itemId }),
+                text,
+                completed: true,
+              });
             }
             yield* Ref.update(buffered, (current) => {
               const next = new Map(current);

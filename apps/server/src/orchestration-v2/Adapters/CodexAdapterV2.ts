@@ -2879,7 +2879,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
 
         const buildAgentMessageArtifacts = (
           context: ActiveCodexTurnContext,
-          item: { readonly id: string; readonly text: string },
+          item: { readonly id: string; readonly text: string; readonly nativeId?: string },
           completed: boolean,
         ) =>
           Effect.gen(function* () {
@@ -2909,7 +2909,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               countsForRun: false,
               providerThreadId: context.providerThread.id,
               providerTurnId: context.providerTurnId,
-              nativeItemRef: codexNativeItemRef(item.id),
+              nativeItemRef: codexNativeItemRef(item.nativeId ?? item.id),
               runtimeRequestId: null,
               checkpointScopeId: null,
               startedAt,
@@ -2936,7 +2936,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               nodeId,
               providerThreadId: context.providerThread.id,
               providerTurnId: context.providerTurnId,
-              nativeItemRef: codexNativeItemRef(item.id),
+              nativeItemRef: codexNativeItemRef(item.nativeId ?? item.id),
               parentItemId: null,
               ordinal,
               status: completed ? "completed" : "running",
@@ -3053,7 +3053,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               }
               const finalAnswerItem = (yield* Ref.get(finalAnswerItemIdsByTurn))
                 .get(update.turnId)
-                ?.has(update.itemId);
+                ?.has(update.completedItemId ?? update.itemId);
               const completedMessages = (yield* Ref.get(completedAgentMessageTextsByTurn)).get(
                 update.turnId,
               );
@@ -3063,6 +3063,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               const normalizedText = normalizeCodexAnswerText(update.text);
               const duplicateCompletion =
                 update.completed &&
+                update.completedItemId === undefined &&
                 (normalizedText.length === 0
                   ? finalAnswerItem && hasCompletedFinalAnswer
                   : completedMessages?.texts.has(normalizedText) === true);
@@ -3099,7 +3100,13 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               }
               const artifacts = yield* buildAgentMessageArtifacts(
                 context,
-                { id: update.itemId, text: update.text },
+                {
+                  id: update.itemId,
+                  text: update.text,
+                  ...(update.completedItemId === undefined
+                    ? {}
+                    : { nativeId: update.completedItemId }),
+                },
                 update.completed,
               );
               yield* emitProviderEvent({
@@ -3117,6 +3124,16 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                 driver: CODEX_PROVIDER,
                 turnItem: artifacts.turnItem,
               });
+              if (update.completedItemId !== undefined) {
+                yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
+                  const updated = new Map(current);
+                  const remaining = new Set(current.get(update.turnId));
+                  remaining.delete(update.itemId);
+                  if (remaining.size === 0) updated.delete(update.turnId);
+                  else updated.set(update.turnId, remaining);
+                  return updated;
+                });
+              }
             }),
         });
 
@@ -4473,6 +4490,9 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
             }
 
             const finalAnswer = payload.item.phase !== "commentary";
+            const unfinishedFinalIds = (yield* Ref.get(finalAnswerItemIdsByTurn)).get(
+              payload.turnId,
+            );
             if (finalAnswer) {
               yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
                 const updated = new Map(current);
@@ -4489,6 +4509,11 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
               turnId: payload.turnId,
               itemId: payload.item.id,
               finalText: payload.item.text,
+              // A completion with its own started identity is a separate item. A new
+              // identity may replace one unfinished final, never a commentary stream.
+              ...(finalAnswer && !context.itemPositions.has(payload.item.id)
+                ? { reconcileFromItemIds: unfinishedFinalIds ?? new Set<string>() }
+                : {}),
             });
             yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
               const itemIds = current.get(payload.turnId);
