@@ -12,8 +12,11 @@ const launches = vi.hoisted(() => ({
   mkdir: vi.fn().mockResolvedValue(undefined),
   rm: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock("playwright-core", () => ({
-  chromium: { launch: launches.launch, launchPersistentContext: launches.persistent },
+vi.mock("node:module", () => ({
+  createRequire: () => (name: string) => {
+    if (name !== "playwright-core") throw new Error(`Unexpected runtime dependency: ${name}`);
+    return { chromium: { launch: launches.launch, launchPersistentContext: launches.persistent } };
+  },
 }));
 vi.mock("node:fs/promises", () => ({ mkdir: launches.mkdir, rm: launches.rm }));
 
