@@ -2,7 +2,7 @@ import { assert, it } from "@effect/vitest";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { migrationManifest, runMigrations } from "./Migrations.ts";
 
 const seedFork = Effect.gen(function* () {
@@ -22,6 +22,8 @@ it.effect("upgrades the released fork ledger to V2 without skipping schema chang
       [56, "RemoveRedundantProjectionIndexes"],
       [57, "RemoveAuthSessionIdentifyingMetadata"],
       [58, "ReusablePairingLinks"],
+      [59, "ScheduledTaskWebhooks"],
+      [60, "WebhookRelayDeliveries"],
     ]);
     const rows = yield* sql<{
       migration_id: number;

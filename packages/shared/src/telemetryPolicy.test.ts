@@ -3,14 +3,10 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { vi } from "vite-plus/test";
 import * as OtelEnvironment from "./otelEnvironment.ts";
-import {
-  makeRelayClientTracingLayer,
-  RelayClientTracer,
-  withRelayClientTracing,
-} from "./relayTracing.ts";
+import * as RelayTracing from "./relayTracing.ts";
 
 it.effect("rejects environment, bootstrap and saved telemetry endpoints for every signal", () =>
   Effect.gen(function* () {
@@ -50,7 +46,7 @@ it.effect("rejects environment, bootstrap and saved telemetry endpoints for ever
 
 it.effect("does not create or flush a relay exporter even with valid credentials", () => {
   const fetchFn = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
-  const tracing = makeRelayClientTracingLayer(
+  const tracing = RelayTracing.layer(
     {
       tracesUrl: "https://collector.example/v1/traces",
       tracesDataset: "traces",
@@ -61,8 +57,11 @@ it.effect("does not create or flush a relay exporter even with valid credentials
   return Effect.gen(function* () {
     yield* Effect.scoped(
       Effect.gen(function* () {
-        assert.isTrue(Option.isNone(yield* RelayClientTracer));
-        yield* Effect.void.pipe(Effect.withSpan("private-operation"), withRelayClientTracing);
+        assert.isTrue(Option.isNone(yield* RelayTracing.RelayClientTracer));
+        yield* Effect.void.pipe(
+          Effect.withSpan("private-operation"),
+          RelayTracing.withRelayClientTracing,
+        );
       }).pipe(Effect.provide(tracing)),
     );
     assert.strictEqual(fetchFn.mock.calls.length, 0);

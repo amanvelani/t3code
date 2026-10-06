@@ -534,9 +534,8 @@ jobs:
   # hardware of its own architecture, and each gated only on the JS bundle.
   # The Windows jobs also embed the same-arch Linux CLI archive as the WSL
   # runtime; they wait for that artifact partway through instead of for the
-  # whole Linux job. Every job builds the desktop app; all but macOS x64 also
-  # build the CLI archive for their platform, so a target either ships fully or
-  # not at all.
+  # whole Linux job. Every job builds the desktop app and the CLI archive for
+  # its platform, so a target either ships fully or not at all.
   desktop_mac_arm64:
     name: Desktop macOS arm64
     needs: [preflight, relay_public_config, build_bundle]
@@ -559,32 +558,6 @@ jobs:
       rust_target: aarch64-apple-darwin
       resource_key: darwin-arm64
       cli_archive: true
-
-  desktop_mac_x64:
-    name: Desktop macOS x64
-    needs: [preflight, relay_public_config, build_bundle]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.relay_public_config.result == 'success' && needs.build_bundle.result == 'success' }}
-    uses: ./.github/workflows/release-desktop.yml
-    secrets: inherit
-    with:
-      version: ${{ needs.preflight.outputs.version }}
-      ref: ${{ needs.preflight.outputs.ref }}
-      release_channel: ${{ needs.preflight.outputs.release_channel }}
-      clerk_publishable_key: ${{ needs.relay_public_config.outputs.clerk_publishable_key }}
-      clerk_jwt_template: ${{ needs.relay_public_config.outputs.clerk_jwt_template }}
-      clerk_cli_oauth_client_id: ${{ needs.relay_public_config.outputs.clerk_cli_oauth_client_id }}
-      relay_url: ${{ needs.relay_public_config.outputs.relay_url }}
-      label: macOS x64
-      runner: blacksmith-12vcpu-macos-26
-      platform: mac
-      target: dmg
-      arch: x64
-      rust_target: x86_64-apple-darwin
-      resource_key: darwin-x64
-      # No CLI archive: Node single-executables are unsupported on x64 macOS
-      # (the SEA docs list macOS as arm64 only) and the built binary segfaults
-      # on start. The x64 desktop app is Electron and unaffected.
-      cli_archive: false
 
   desktop_linux_x64:
     name: Desktop Linux x64
@@ -756,14 +729,13 @@ jobs:
       [
         preflight,
         desktop_mac_arm64,
-        desktop_mac_x64,
         desktop_linux_x64,
         desktop_linux_arm64,
         desktop_win_x64,
         desktop_win_arm64,
         publish_cli,
       ]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.desktop_mac_arm64.result == 'success' && needs.desktop_mac_x64.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success' && needs.publish_cli.result == 'success' }}
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.desktop_mac_arm64.result == 'success' && needs.desktop_linux_x64.result == 'success' && needs.desktop_linux_arm64.result == 'success' && needs.desktop_win_x64.result == 'success' && needs.desktop_win_arm64.result == 'success' && needs.publish_cli.result == 'success' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 30
     permissions:
@@ -837,18 +809,6 @@ jobs:
       # electron-updater reads one manifest per platform and channel and picks
       # the file entry whose name carries the running arch, so the per-arch
       # manifests the build jobs wrote are merged back into that one file.
-      - name: Merge macOS updater manifests
-        if: needs.preflight.outputs.release_channel != 'preview'
-        run: |
-          shopt -s nullglob
-          for x64_manifest in release-assets/*-mac-x64.yml; do
-            arm64_manifest="${x64_manifest%-x64.yml}.yml"
-            if [[ -f "$arm64_manifest" ]]; then
-              node scripts/merge-update-manifests.ts --platform mac "$arm64_manifest" "$x64_manifest"
-              rm -f "$x64_manifest"
-            fi
-          done
-
       - name: Merge Windows updater manifests
         if: needs.preflight.outputs.release_channel != 'preview'
         run: |

@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
-import * as Migrator from "effect/unstable/sql/Migrator";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as Migrator from "effect/sql/Migrator";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // The released fork inserted a privacy migration at 48, shifting upstream 48–54.
 // Normalize only that known ledger so the V2 migration at 55 is not skipped.

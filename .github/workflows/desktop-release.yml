@@ -127,13 +127,6 @@ jobs:
             arch: arm64
             rust_target: aarch64-apple-darwin
             resource_key: darwin-arm64
-          - label: macOS x64
-            runner: macos-15-intel
-            platform: mac
-            target: dmg
-            arch: x64
-            rust_target: x86_64-apple-darwin
-            resource_key: darwin-x64
           - label: Windows x64
             runner: windows-2025
             platform: win
@@ -237,12 +230,6 @@ jobs:
             done
           done
 
-          if [[ "${{ matrix.platform }}" == "mac" && "${{ matrix.arch }}" != "arm64" ]]; then
-            for manifest in release-publish/*-mac.yml; do
-              mv "$manifest" "${manifest%.yml}-${{ matrix.arch }}.yml"
-            done
-          fi
-
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -280,19 +267,6 @@ jobs:
           pattern: desktop-*
           merge-multiple: true
           path: release-assets
-
-      - name: Merge macOS updater manifests
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          for x64_manifest in release-assets/*-mac-x64.yml; do
-            arm64_manifest="${x64_manifest%-x64.yml}.yml"
-            if [[ -f "$arm64_manifest" ]]; then
-              node scripts/merge-update-manifests.ts --platform mac "$arm64_manifest" "$x64_manifest"
-              rm -f "$x64_manifest"
-            fi
-          done
 
       - name: Publish Windows/macOS release
         shell: bash

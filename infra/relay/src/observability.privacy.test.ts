@@ -2,9 +2,9 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { vi } from "vite-plus/test";
-import { makeRelayTraceLayer } from "./observability.ts";
+import * as Observability from "./observability.ts";
 
 it.effect("does not export relay worker traces with a configured collector", () => {
   const fetchFn = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
@@ -13,7 +13,7 @@ it.effect("does not export relay worker traces with a configured collector", () 
       Effect.logInfo("private relay operation").pipe(
         Effect.withSpan("relay.private"),
         Effect.provide(
-          makeRelayTraceLayer({
+          Observability.layer({
             tracesEndpoint: "https://collector.example/v1/traces",
             tracesDatasetName: "traces",
             ingestToken: Redacted.make("test-token"),
