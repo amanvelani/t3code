@@ -10,6 +10,7 @@
  * HTTPS and pairs through the tailnet URL instead.
  */
 import {
+  type AuthEnvironmentScope,
   AuthStandardClientScopes,
   ExecutionEnvironmentDescriptor,
   PortSchema,
@@ -54,6 +55,7 @@ import {
   renderTerminalQrCode,
   resolveHeadlessConnectionString,
 } from "../startupAccess.ts";
+import { authScopesFlag } from "./authScopes.ts";
 import { baseDirFlag, DurationFromString } from "./config.ts";
 
 const WELL_KNOWN_ENVIRONMENT_PATH = "/.well-known/t3/environment";
@@ -429,6 +431,7 @@ const resolveTailscalePairingBase = Effect.fn("pair.resolveTailscalePairingBase"
 
 const mintPairingLink = Effect.fn("pair.mintPairingLink")(function* (input: {
   readonly config: ServerConfig.ServerConfig["Service"];
+  readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
   readonly ttl: Option.Option<Duration.Duration>;
   readonly label: Option.Option<string>;
   readonly reusable: boolean;
@@ -436,7 +439,7 @@ const mintPairingLink = Effect.fn("pair.mintPairingLink")(function* (input: {
   return yield* Effect.gen(function* () {
     const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;
     return yield* environmentAuth.createPairingLink({
-      scopes: AuthStandardClientScopes,
+      scopes: input.scopes,
       subject: input.reusable ? "reusable-token" : "one-time-token",
       reusable: input.reusable,
       label: Option.getOrElse(input.label, () => (input.reusable ? "Dev Tunnels" : "t3 pair")),
@@ -480,6 +483,7 @@ const tailscaleServePortFlag = Flag.Int("tailscale-serve-port").pipe(
 
 export const pairCommand = Command.make("pair", {
   baseDir: baseDirFlag,
+  scopes: authScopesFlag(AuthStandardClientScopes),
   ttl: ttlFlag,
   label: labelFlag,
   tailscale: tailscaleFlag,
@@ -540,6 +544,7 @@ export const pairCommand = Command.make("pair", {
       const config = yield* makePairServerConfig({ target, logLevel });
       const issued = yield* mintPairingLink({
         config,
+        scopes: flags.scopes,
         ttl: flags.ttl,
         label: flags.label,
         reusable: flags.devTunnel,

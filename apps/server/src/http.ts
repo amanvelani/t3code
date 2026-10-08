@@ -6,6 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { isDevProxiedPath } from "@t3tools/shared/devProxy";
 import { decodeOtlpTraceRecords } from "@t3tools/shared/observability";
+import { NETWORK_TELEMETRY_ENABLED } from "@t3tools/shared/telemetryPolicy";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -342,7 +343,7 @@ export const layerOtlpTracesProxyRoute = HttpRouter.add(
       Effect.catch((cause) => Effect.logWarning("Failed to decode browser OTLP traces", { cause })),
     );
 
-    if (otlpTracesUrl === undefined) {
+    if (!NETWORK_TELEMETRY_ENABLED || otlpTracesUrl === undefined) {
       return HttpServerResponse.empty({ status: 204 });
     }
 

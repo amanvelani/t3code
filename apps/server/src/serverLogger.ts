@@ -1,4 +1,5 @@
 import * as SharedObservability from "@t3tools/shared/observability";
+import { NETWORK_TELEMETRY_ENABLED } from "@t3tools/shared/telemetryPolicy";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
@@ -14,7 +15,7 @@ export const layer = Effect.gen(function* () {
 
   const logs = config.otlpLogsExport;
   const otlpLogger =
-    config.otlpLogsUrl === undefined
+    !NETWORK_TELEMETRY_ENABLED || config.otlpLogsUrl === undefined
       ? undefined
       : OtlpLogger.make({
           url: config.otlpLogsUrl,

@@ -75,6 +75,7 @@ import Migration0057 from "./Migrations/057_RemoveAuthSessionIdentifyingMetadata
 import Migration0058 from "./Migrations/058_ReusablePairingLinks.ts";
 import Migration0059 from "./Migrations/059_ScheduledTaskWebhooks.ts";
 import Migration0060 from "./Migrations/060_WebhookRelayDeliveries.ts";
+import Migration0061 from "./Migrations/061_McpAppModelContext.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -149,6 +150,7 @@ export const migrationEntries = [
   [58, "ReusablePairingLinks", Migration0058],
   [59, "ScheduledTaskWebhooks", Migration0059],
   [60, "WebhookRelayDeliveries", Migration0060],
+  [61, "McpAppModelContext", Migration0061],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

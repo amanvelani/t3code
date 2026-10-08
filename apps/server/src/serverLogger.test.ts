@@ -14,6 +14,10 @@ import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 
 import * as ServerConfig from "./config.ts";
 import * as ServerLogger from "./serverLogger.ts";
+import { vi } from "vite-plus/test";
+
+// Exercise upstream exporter mechanics independently of the fork's disabled policy.
+vi.mock("@t3tools/shared/telemetryPolicy", () => ({ NETWORK_TELEMETRY_ENABLED: true }));
 
 interface ExportedRequest {
   readonly url: string;

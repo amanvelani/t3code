@@ -8,9 +8,10 @@ import type { Browser, BrowserContext } from "playwright-core";
 
 import { sandboxDisabled } from "./PreviewBrowserHost.ts";
 
-// Playwright reads files beside its modules; createRequire resolves that runtime
-// dependency from disk even when the server runs as a Node single-executable.
+// Playwright needs its files on disk. createRequire also resolves it from a Node SEA executable.
 const requirePlaywright = NodeModule.createRequire(import.meta.url);
+const loadPlaywright = () =>
+  requirePlaywright("playwright-core") as typeof import("playwright-core");
 
 interface Options {
   readonly profilesDir: string;
@@ -59,9 +60,7 @@ export class ServerBrowserContexts {
   private sharedBrowser() {
     if (!this.browser) {
       const launched = this.launchOptions().then(async (options) => {
-        const { chromium } = requirePlaywright(
-          "playwright-core",
-        ) as typeof import("playwright-core");
+        const { chromium } = loadPlaywright();
         const browser = await this.launch(options, () => chromium.launch(options));
         browser.on("disconnected", () => {
           if (this.browser === launched) this.browser = undefined;
@@ -111,7 +110,7 @@ export class ServerBrowserContexts {
     }
     const directory = this.profileDirectory(profileId);
     const options = await this.launchOptions();
-    const { chromium } = requirePlaywright("playwright-core") as typeof import("playwright-core");
+    const { chromium } = loadPlaywright();
     await NodeFSP.mkdir(directory, { recursive: true });
     return this.launch(options, () =>
       chromium.launchPersistentContext(directory, { ...options, ...contextOptions }),
@@ -140,7 +139,7 @@ export class ServerBrowserContexts {
    * serves. The page keeps the desktop's storage, size, and window.
    */
   async connectDesktopPage(endpoint: string) {
-    const { chromium } = requirePlaywright("playwright-core") as typeof import("playwright-core");
+    const { chromium } = loadPlaywright();
     const browser = await chromium.connectOverCDP(endpoint, { timeout: 15_000 });
     const page = browser.contexts().flatMap((context) => context.pages())[0];
     if (!page) {

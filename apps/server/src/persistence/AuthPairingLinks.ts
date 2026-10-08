@@ -48,6 +48,7 @@ export type CreateAuthPairingLinkInput = typeof CreateAuthPairingLinkInput.Type;
 export const ConsumeAuthPairingLinkInput = Schema.Struct({
   credential: Schema.String,
   proofKeyThumbprint: Schema.NullOr(Schema.String),
+  requestedScopes: Schema.optionalKey(AuthEnvironmentScopes),
   consumedAt: Schema.DateTimeUtcFromString,
   now: Schema.DateTimeUtcFromString,
 });
@@ -164,7 +165,7 @@ export const make = Effect.gen(function* () {
   const consumeAvailablePairingLinkRow = SqlSchema.findOneOption({
     Request: ConsumeAuthPairingLinkInput,
     Result: AuthPairingLinkRawDbRow,
-    execute: ({ credential, proofKeyThumbprint, consumedAt, now }) =>
+    execute: ({ credential, proofKeyThumbprint, requestedScopes, consumedAt, now }) =>
       sql`
         UPDATE auth_pairing_links
         SET consumed_at = CASE WHEN reusable = 1 THEN NULL ELSE ${consumedAt} END
@@ -176,6 +177,13 @@ export const make = Effect.gen(function* () {
             proof_key_thumbprint IS NULL
             OR proof_key_thumbprint = ${proofKeyThumbprint}
           )
+          AND (${requestedScopes === undefined} OR EXISTS (
+            SELECT 1
+            FROM json_each(${JSON.stringify(requestedScopes ?? [])}) AS requested
+            WHERE requested.value IN (
+              SELECT value FROM json_each(auth_pairing_links.scopes)
+            )
+          ))
         RETURNING
           id AS "id",
           credential AS "credential",
