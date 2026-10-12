@@ -25,6 +25,8 @@ it.effect("upgrades the released fork ledger to V2 without skipping schema chang
       [59, "ScheduledTaskWebhooks"],
       [60, "WebhookRelayDeliveries"],
       [61, "McpAppModelContext"],
+      [62, "ThreadSnapshotWindowIndexes"],
+      [63, "PullRequestReviewGuides"],
     ]);
     const rows = yield* sql<{
       migration_id: number;

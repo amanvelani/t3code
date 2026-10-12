@@ -4,6 +4,7 @@ import {
   type EnvironmentId,
 } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { useAtomValue } from "@effect/atom-react";
 import { useState } from "react";
 
 import { createServerPairingCredential } from "~/environments/primary";
@@ -38,6 +39,7 @@ export function DevTunnelSettings({
   const setEnabled = useAtomCommand(serverEnvironment.setDevTunnelEnabled, {
     reportFailure: false,
   });
+  const canEdit = useAtomValue(serverEnvironment.setDevTunnelEnabled.permissionAtom(environmentId));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pairingUrl, setPairingUrl] = useState<string | null>(null);
@@ -94,18 +96,28 @@ export function DevTunnelSettings({
         control={
           <div className="flex items-center gap-2">
             {state?.status === "running" ? (
-              <Button size="xs" variant="outline" disabled={busy} onClick={() => void createLink()}>
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={busy || !canEdit}
+                onClick={() => void createLink()}
+              >
                 Create pairing link
               </Button>
             ) : state?.status === "failed" ? (
-              <Button size="xs" variant="outline" disabled={busy} onClick={() => void toggle(true)}>
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={busy || !canEdit}
+                onClick={() => void toggle(true)}
+              >
                 Retry
               </Button>
             ) : null}
             <Switch
               aria-label="Enable Dev Tunnels"
               checked={state?.enabled ?? false}
-              disabled={busy || state === null}
+              disabled={busy || !canEdit || state === null}
               onCheckedChange={(enabled) => void toggle(enabled)}
             />
           </div>

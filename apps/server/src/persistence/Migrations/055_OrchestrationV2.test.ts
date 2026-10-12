@@ -9,11 +9,37 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layer({ filename: ":memory:" })));
 
 layer("055_OrchestrationV2", (it) => {
+  it.effect("upgrades the synced fork without reusing its released migration IDs", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 61 });
+      const ledger = yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`;
+
+      assert.deepStrictEqual(yield* runMigrations(), [
+        [62, "ThreadSnapshotWindowIndexes"],
+        [63, "PullRequestReviewGuides"],
+      ]);
+      assert.deepStrictEqual(
+        yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 61 ORDER BY migration_id`,
+        ledger,
+      );
+      const schema = yield* sql<{ name: string }>`
+        SELECT name FROM sqlite_master WHERE name IN (
+          'orchestration_v2_projection_turn_items_user_message_idx',
+          'orchestration_v2_projection_nodes_live_idx',
+          'pull_request_review_guides'
+        )
+      `;
+      assert.lengthOf(schema, 3);
+      assert.deepStrictEqual(yield* runMigrations(), []);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
   it.effect("keeps released migrations contiguous", () =>
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 61 }, (_, index) => index + 1),
+        Array.from({ length: 63 }, (_, index) => index + 1),
       );
     }),
   );
@@ -33,6 +59,8 @@ layer("055_OrchestrationV2", (it) => {
         [59, "ScheduledTaskWebhooks"],
         [60, "WebhookRelayDeliveries"],
         [61, "McpAppModelContext"],
+        [62, "ThreadSnapshotWindowIndexes"],
+        [63, "PullRequestReviewGuides"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -60,6 +88,8 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 59, name: "ScheduledTaskWebhooks" },
         { migration_id: 60, name: "WebhookRelayDeliveries" },
         { migration_id: 61, name: "McpAppModelContext" },
+        { migration_id: 62, name: "ThreadSnapshotWindowIndexes" },
+        { migration_id: 63, name: "PullRequestReviewGuides" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

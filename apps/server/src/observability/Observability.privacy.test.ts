@@ -14,6 +14,7 @@ import * as ServerHttp from "../http.ts";
 import * as ResourceAttribution from "../resourceTelemetry/ResourceAttribution.ts";
 import * as BrowserTraceCollector from "./BrowserTraceCollector.ts";
 import * as Observability from "./Observability.ts";
+import * as OtlpEndpointCheck from "./OtlpEndpointCheck.ts";
 
 const layerConfig = Layer.effect(
   ServerConfig.ServerConfig,
@@ -23,6 +24,12 @@ const layerConfig = Layer.effect(
     otlpTracesUrl: "https://collector.example/v1/traces",
     otlpMetricsUrl: "https://collector.example/v1/metrics",
     otlpLogsUrl: "https://collector.example/v1/logs",
+    otlpTracesExport: { ...config.otlpTracesExport, headers: { authorization: "Bearer private" } },
+    otlpMetricsExport: {
+      ...config.otlpMetricsExport,
+      headers: { authorization: "Bearer private" },
+    },
+    otlpLogsExport: { ...config.otlpLogsExport, headers: { authorization: "Bearer private" } },
   })),
 ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-server-privacy-" })));
 
@@ -36,6 +43,29 @@ const layerCollector = (requests: string[]) =>
       }),
     ),
   );
+
+it.effect("disables every OTLP endpoint check without sending configured credentials", () => {
+  const requests: string[] = [];
+  return Effect.gen(function* () {
+    const service = yield* OtlpEndpointCheck.OtlpEndpointCheck;
+    for (const signal of ["traces", "metrics", "logs"] as const) {
+      const result = yield* service.check({
+        signal,
+        url: `https://collector.example/v1/${signal}`,
+      });
+      assert.deepEqual(result, { _tag: "Disabled" });
+    }
+    assert.deepEqual(requests, []);
+  }).pipe(
+    Effect.provide(
+      OtlpEndpointCheck.layer.pipe(
+        Layer.provide(layerConfig),
+        Layer.provide(layerCollector(requests)),
+        Layer.provide(NodeServices.layer),
+      ),
+    ),
+  );
+});
 
 it.effect("keeps server traces, metrics and logs local even with configured export URLs", () => {
   const requests: string[] = [];

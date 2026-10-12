@@ -4,7 +4,7 @@ import sharp from "sharp";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -402,7 +402,7 @@ const probeIconComposerTool = Effect.fn("iconExport.probeIconComposerTool")(func
 
 const resolveIconComposerTool = Effect.fn("iconExport.resolveIconComposerTool")(function* () {
   const path = yield* Path.Path;
-  const environment = yield* HostProcessEnvironment;
+  const environment = yield* HostProcess.Environment;
   const configuredTool = environment.ICON_COMPOSER_TOOL?.trim();
   if (configuredTool) {
     const tool = yield* probeIconComposerTool(configuredTool);
