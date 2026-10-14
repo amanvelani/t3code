@@ -199,10 +199,6 @@ export function codexProviderTurnTokenUsage(
 }
 const DEFAULT_CODEX_SETTINGS = Schema.decodeSync(CodexSettings)({});
 const CODEX_ASSISTANT_DELTA_FLUSH_INTERVAL_MS = 50;
-
-function normalizeCodexAnswerText(text: string): string {
-  return text.replace(/\r\n?/g, "\n").trimEnd();
-}
 const CodexBackgroundTerminalTerminateResponse = Schema.Struct({
   terminated: Schema.Boolean,
 });
@@ -1895,15 +1891,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         const deferredRootTerminals = yield* Ref.make(new Map<string, DeferredCodexRootTerminal>());
         const offeredContinuationItemsByTurn = yield* Ref.make(new Map<string, Set<string>>());
         const finalAnswerItemIdsByTurn = yield* Ref.make(new Map<string, Set<string>>());
-        const completedAgentMessageTextsByTurn = yield* Ref.make(
-          new Map<
-            string,
-            {
-              readonly texts: ReadonlySet<string>;
-              readonly finalAnswerTexts: ReadonlySet<string>;
-            }
-          >(),
-        );
+        const completedFinalAnswerTextsByTurn = yield* Ref.make(new Map<string, Set<string>>());
         // Native completion and the interrupt timeout share one finalization
         // path. Serialize the race so only one can publish terminal events.
         const turnTerminalizationPermit = yield* Semaphore.make(1);
@@ -2221,7 +2209,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               updated.delete(nativeTurnId);
               return updated;
             });
-            yield* Ref.update(completedAgentMessageTextsByTurn, (current) => {
+            yield* Ref.update(completedFinalAnswerTextsByTurn, (current) => {
               if (!current.has(nativeTurnId)) {
                 return current;
               }
@@ -3210,7 +3198,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
 
         const buildAgentMessageArtifacts = (
           context: ActiveCodexTurnContext,
-          item: { readonly id: string; readonly text: string; readonly nativeId?: string },
+          item: { readonly id: string; readonly text: string },
           completed: boolean,
         ) =>
           Effect.gen(function* () {
@@ -3240,7 +3228,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               countsForRun: false,
               providerThreadId: context.providerThread.id,
               providerTurnId: context.providerTurnId,
-              nativeItemRef: codexNativeItemRef(item.nativeId ?? item.id),
+              nativeItemRef: codexNativeItemRef(item.id),
               runtimeRequestId: null,
               checkpointScopeId: null,
               startedAt,
@@ -3267,7 +3255,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               nodeId,
               providerThreadId: context.providerThread.id,
               providerTurnId: context.providerTurnId,
-              nativeItemRef: codexNativeItemRef(item.nativeId ?? item.id),
+              nativeItemRef: codexNativeItemRef(item.id),
               parentItemId: null,
               ordinal,
               status: completed ? "completed" : "running",
@@ -3384,60 +3372,29 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               }
               const finalAnswerItem = (yield* Ref.get(finalAnswerItemIdsByTurn))
                 .get(update.turnId)
-                ?.has(update.completedItemId ?? update.itemId);
-              const completedMessages = (yield* Ref.get(completedAgentMessageTextsByTurn)).get(
-                update.turnId,
-              );
-              // Codex can repeat a complete answer in commentary before any final.
-              // Match completed text across phases, within this native turn only.
-              const hasCompletedFinalAnswer = (completedMessages?.finalAnswerTexts.size ?? 0) > 0;
-              const normalizedText = normalizeCodexAnswerText(update.text);
-              const duplicateCompletion =
-                update.completed &&
-                update.completedItemId === undefined &&
-                (normalizedText.length === 0
-                  ? finalAnswerItem && hasCompletedFinalAnswer
-                  : completedMessages?.texts.has(normalizedText) === true);
-              if (!update.completed) {
-                const firstFinalAnswerItemId = (yield* Ref.get(finalAnswerItemIdsByTurn))
-                  .get(update.turnId)
-                  ?.values()
-                  .next().value;
-                // A later overlapping final waits for the first to complete. Otherwise
-                // buffer only a possible repeat, and stream as soon as its text diverges.
-                if (finalAnswerItem && firstFinalAnswerItemId !== update.itemId) {
+                ?.has(update.itemId);
+              if (finalAnswerItem) {
+                const finalAnswerItemIds = (yield* Ref.get(finalAnswerItemIdsByTurn)).get(
+                  update.turnId,
+                );
+                const completedTexts =
+                  (yield* Ref.get(completedFinalAnswerTextsByTurn)).get(update.turnId) ??
+                  new Set<string>();
+                const firstFinalAnswerItemId = finalAnswerItemIds?.values().next().value;
+                const duplicateCompletion =
+                  update.completed &&
+                  completedTexts.size > 0 &&
+                  (update.text.length === 0 || completedTexts.has(update.text));
+                const deferredStreamingUpdate =
+                  !update.completed &&
+                  (completedTexts.size > 0 || firstFinalAnswerItemId !== update.itemId);
+                if (deferredStreamingUpdate || duplicateCompletion) {
                   return;
                 }
-                for (const text of completedMessages?.texts ?? []) {
-                  if (text.length > 0 && text.startsWith(normalizedText)) {
-                    return;
-                  }
-                }
-              }
-              if (update.completed) {
-                yield* Ref.update(completedAgentMessageTextsByTurn, (current) => {
-                  const updated = new Map(current);
-                  const previous = current.get(update.turnId);
-                  const texts = new Set(previous?.texts ?? []);
-                  const finalAnswerTexts = new Set(previous?.finalAnswerTexts ?? []);
-                  texts.add(normalizedText);
-                  if (finalAnswerItem) finalAnswerTexts.add(normalizedText);
-                  updated.set(update.turnId, { texts, finalAnswerTexts });
-                  return updated;
-                });
-              }
-              if (duplicateCompletion) {
-                return;
               }
               const artifacts = yield* buildAgentMessageArtifacts(
                 context,
-                {
-                  id: update.itemId,
-                  text: update.text,
-                  ...(update.completedItemId === undefined
-                    ? {}
-                    : { nativeId: update.completedItemId }),
-                },
+                { id: update.itemId, text: update.text },
                 update.completed,
               );
               yield* emitProviderEvent({
@@ -3460,13 +3417,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 driver: CODEX_PROVIDER,
                 turnItem: artifacts.turnItem,
               });
-              if (update.completedItemId !== undefined) {
-                yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
+              if (finalAnswerItem && update.completed) {
+                yield* Ref.update(completedFinalAnswerTextsByTurn, (current) => {
                   const updated = new Map(current);
-                  const remaining = new Set(current.get(update.turnId));
-                  remaining.delete(update.itemId);
-                  if (remaining.size === 0) updated.delete(update.turnId);
-                  else updated.set(update.turnId, remaining);
+                  const texts = new Set(updated.get(update.turnId) ?? []);
+                  texts.add(update.text);
+                  updated.set(update.turnId, texts);
                   return updated;
                 });
               }
@@ -5061,9 +5017,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             }
 
             const finalAnswer = payload.item.phase !== "commentary";
-            const unfinishedFinalIds = (yield* Ref.get(finalAnswerItemIdsByTurn)).get(
-              payload.turnId,
-            );
             if (finalAnswer) {
               yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
                 const updated = new Map(current);
@@ -5074,17 +5027,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               });
             }
             const completedTextsBefore =
-              (yield* Ref.get(completedAgentMessageTextsByTurn)).get(payload.turnId)
-                ?.finalAnswerTexts ?? new Set<string>();
+              (yield* Ref.get(completedFinalAnswerTextsByTurn)).get(payload.turnId) ??
+              new Set<string>();
             const text = yield* agentMessageDeltas.complete({
               turnId: payload.turnId,
               itemId: payload.item.id,
               finalText: payload.item.text,
-              // A completion with its own started identity is a separate item. A new
-              // identity may replace one unfinished final, never a commentary stream.
-              ...(finalAnswer && !context.itemPositions.has(payload.item.id)
-                ? { reconcileFromItemIds: unfinishedFinalIds ?? new Set<string>() }
-                : {}),
             });
             yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
               const itemIds = current.get(payload.turnId);
@@ -5101,13 +5049,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               }
               return updated;
             });
-            const normalizedText = normalizeCodexAnswerText(text);
-            // A first final still supplies the subagent result when it repeats commentary.
-            const newFinalAnswer =
-              finalAnswer &&
-              (completedTextsBefore.size === 0 ||
-                (normalizedText.length > 0 && !completedTextsBefore.has(normalizedText)));
-            if (newFinalAnswer && context.subagent !== null) {
+            const emitted =
+              !finalAnswer ||
+              completedTextsBefore.size === 0 ||
+              (text.length > 0 && !completedTextsBefore.has(text));
+            if (emitted && context.subagent !== null && finalAnswer) {
               yield* emitSubagentTaskUpdate({
                 subagent: context.subagent,
                 status: context.subagent.task.status,
@@ -6019,7 +5965,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 });
               }
               if (!retainSettledContext) {
-                yield* Ref.update(completedAgentMessageTextsByTurn, (current) => {
+                yield* Ref.update(completedFinalAnswerTextsByTurn, (current) => {
                   if (!current.has(input.nativeTurnId)) {
                     return current;
                   }
