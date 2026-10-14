@@ -12,25 +12,23 @@ layer("055_OrchestrationV2", (it) => {
   it.effect("upgrades the synced fork without reusing its released migration IDs", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 61 });
+      yield* runMigrations({ toMigrationInclusive: 63 });
       const ledger = yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`;
 
-      assert.deepStrictEqual(yield* runMigrations(), [
-        [62, "ThreadSnapshotWindowIndexes"],
-        [63, "PullRequestReviewGuides"],
-      ]);
+      assert.deepStrictEqual(yield* runMigrations(), [[64, "ThreadFailureLookupIndex"]]);
       assert.deepStrictEqual(
-        yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 61 ORDER BY migration_id`,
+        yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 63 ORDER BY migration_id`,
         ledger,
       );
       const schema = yield* sql<{ name: string }>`
         SELECT name FROM sqlite_master WHERE name IN (
           'orchestration_v2_projection_turn_items_user_message_idx',
           'orchestration_v2_projection_nodes_live_idx',
-          'pull_request_review_guides'
+          'pull_request_review_guides',
+          'orchestration_v2_projection_turn_items_failed_error_idx'
         )
       `;
-      assert.lengthOf(schema, 3);
+      assert.lengthOf(schema, 4);
       assert.deepStrictEqual(yield* runMigrations(), []);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -39,7 +37,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 63 }, (_, index) => index + 1),
+        Array.from({ length: 64 }, (_, index) => index + 1),
       );
     }),
   );
@@ -61,6 +59,7 @@ layer("055_OrchestrationV2", (it) => {
         [61, "McpAppModelContext"],
         [62, "ThreadSnapshotWindowIndexes"],
         [63, "PullRequestReviewGuides"],
+        [64, "ThreadFailureLookupIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -90,6 +89,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 61, name: "McpAppModelContext" },
         { migration_id: 62, name: "ThreadSnapshotWindowIndexes" },
         { migration_id: 63, name: "PullRequestReviewGuides" },
+        { migration_id: 64, name: "ThreadFailureLookupIndex" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

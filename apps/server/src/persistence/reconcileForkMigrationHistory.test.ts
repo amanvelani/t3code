@@ -27,6 +27,7 @@ it.effect("upgrades the released fork ledger to V2 without skipping schema chang
       [61, "McpAppModelContext"],
       [62, "ThreadSnapshotWindowIndexes"],
       [63, "PullRequestReviewGuides"],
+      [64, "ThreadFailureLookupIndex"],
     ]);
     const rows = yield* sql<{
       migration_id: number;

@@ -151,9 +151,13 @@ export const make = Effect.gen(function* () {
             }
             let tunnelId = persisted.tunnelId;
             if (!tunnelId) {
-              const uuid = yield* crypto.randomUUIDv4.pipe(
-                Effect.mapError((cause) => new DevTunnelError({ reason: "configuration", cause })),
-              );
+              const uuid = yield* crypto
+                .randomUUIDv4()
+                .pipe(
+                  Effect.mapError(
+                    (cause) => new DevTunnelError({ reason: "configuration", cause }),
+                  ),
+                );
               tunnelId = `t3${uuid.replaceAll("-", "").slice(0, 20)}`;
               const created = yield* run(["create", tunnelId, "--expiration", "30d"]);
               if (created.code !== 0) return yield* new DevTunnelError({ reason: "start-failed" });
