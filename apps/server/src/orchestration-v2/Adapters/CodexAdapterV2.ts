@@ -1119,6 +1119,11 @@ function codexErrorInfoCode(value: unknown): string | null {
   return Object.keys(value)[0] ?? null;
 }
 
+type CodexAgentMessagePhase = Extract<
+  CodexSchema.V2ItemStartedNotification__ThreadItem,
+  { type: "agentMessage" }
+>["phase"];
+
 interface ActiveCodexTurnContext {
   latestProviderFailure?: {
     readonly nativeMessage: string;
@@ -1147,6 +1152,7 @@ interface ActiveCodexTurnContext {
     string,
     { readonly ordinal: number; readonly startedAt: DateTime.Utc }
   >;
+  readonly agentMessageAliases: Map<string, string>;
 }
 
 interface ActiveCodexProviderRetry {
@@ -1912,7 +1918,9 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         // terminal, otherwise the root terminal can strand child projections.
         const deferredRootTerminals = yield* Ref.make(new Map<string, DeferredCodexRootTerminal>());
         const offeredContinuationItemsByTurn = yield* Ref.make(new Map<string, Set<string>>());
-        const finalAnswerItemIdsByTurn = yield* Ref.make(new Map<string, Set<string>>());
+        const pendingAgentMessagePhasesByTurn = yield* Ref.make(
+          new Map<string, Map<string, CodexAgentMessagePhase>>(),
+        );
         const completedFinalAnswerTextsByTurn = yield* Ref.make(new Map<string, Set<string>>());
         // Native completion and the interrupt timeout share one finalization
         // path. Serialize the race so only one can publish terminal events.
@@ -2037,6 +2045,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               subagent: null,
               startedAt: input.startedAt,
               itemPositions: new Map(),
+              agentMessageAliases: new Map(),
             };
             yield* Ref.update(limitedTurnItems, (current) => {
               const next = new Map(current);
@@ -2239,7 +2248,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               updated.delete(nativeTurnId);
               return updated;
             });
-            yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
+            yield* Ref.update(pendingAgentMessagePhasesByTurn, (current) => {
               if (!current.has(nativeTurnId)) {
                 return current;
               }
@@ -2627,6 +2636,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               subagent,
               startedAt: turn.startedAt,
               itemPositions: new Map(),
+              agentMessageAliases: new Map(),
             };
             beginTurnTokenUsage(activeContext);
             yield* Ref.update(activeTurns, (current) => {
@@ -3220,7 +3230,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
 
         const buildAgentMessageArtifacts = (
           context: ActiveCodexTurnContext,
-          item: { readonly id: string; readonly text: string },
+          item: { readonly id: string; readonly text: string; readonly nativeId?: string },
           completed: boolean,
         ) =>
           Effect.gen(function* () {
@@ -3250,7 +3260,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               countsForRun: false,
               providerThreadId: context.providerThread.id,
               providerTurnId: context.providerTurnId,
-              nativeItemRef: codexNativeItemRef(item.id),
+              nativeItemRef: codexNativeItemRef(item.nativeId ?? item.id),
               runtimeRequestId: null,
               checkpointScopeId: null,
               startedAt,
@@ -3277,7 +3287,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               nodeId,
               providerThreadId: context.providerThread.id,
               providerTurnId: context.providerTurnId,
-              nativeItemRef: codexNativeItemRef(item.id),
+              nativeItemRef: codexNativeItemRef(item.nativeId ?? item.id),
               parentItemId: null,
               ordinal,
               status: completed ? "completed" : "running",
@@ -3392,19 +3402,25 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               if (context === undefined) {
                 return;
               }
-              const finalAnswerItem = (yield* Ref.get(finalAnswerItemIdsByTurn))
-                .get(update.turnId)
-                ?.has(update.itemId);
+              const pendingItems = (yield* Ref.get(pendingAgentMessagePhasesByTurn)).get(
+                update.turnId,
+              );
+              const completedItemId = update.completedItemId ?? update.itemId;
+              const canonicalItemId =
+                context.agentMessageAliases.get(update.itemId) ?? update.itemId;
+              const finalAnswerItem =
+                pendingItems?.has(completedItemId) &&
+                pendingItems.get(completedItemId) !== "commentary";
               if (finalAnswerItem) {
-                const finalAnswerItemIds = (yield* Ref.get(finalAnswerItemIdsByTurn)).get(
-                  update.turnId,
-                );
                 const completedTexts =
                   (yield* Ref.get(completedFinalAnswerTextsByTurn)).get(update.turnId) ??
                   new Set<string>();
-                const firstFinalAnswerItemId = finalAnswerItemIds?.values().next().value;
+                const firstFinalAnswerItemId = Array.from(pendingItems ?? []).find(
+                  ([, phase]) => phase !== "commentary",
+                )?.[0];
                 const duplicateCompletion =
                   update.completed &&
+                  update.completedItemId === undefined &&
                   completedTexts.size > 0 &&
                   (update.text.length === 0 || completedTexts.has(update.text));
                 const deferredStreamingUpdate =
@@ -3416,7 +3432,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               }
               const artifacts = yield* buildAgentMessageArtifacts(
                 context,
-                { id: update.itemId, text: update.text },
+                {
+                  id: canonicalItemId,
+                  text: update.text,
+                  ...(canonicalItemId === completedItemId ? {} : { nativeId: completedItemId }),
+                },
                 update.completed,
               );
               yield* emitProviderEvent({
@@ -3445,6 +3465,18 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   const texts = new Set(updated.get(update.turnId) ?? []);
                   texts.add(update.text);
                   updated.set(update.turnId, texts);
+                  return updated;
+                });
+              }
+              if (update.completedItemId !== undefined) {
+                // Later notifications still address the completed native ID.
+                context.agentMessageAliases.set(update.completedItemId, canonicalItemId);
+                yield* Ref.update(pendingAgentMessagePhasesByTurn, (current) => {
+                  const updated = new Map(current);
+                  const remaining = new Map(current.get(update.turnId));
+                  remaining.delete(update.itemId);
+                  if (remaining.size === 0) updated.delete(update.turnId);
+                  else updated.set(update.turnId, remaining);
                   return updated;
                 });
               }
@@ -4707,15 +4739,14 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             }
 
             if (payload.item.type === "agentMessage") {
-              if (payload.item.phase !== "commentary") {
-                yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
-                  const updated = new Map(current);
-                  const itemIds = new Set(updated.get(payload.turnId) ?? []);
-                  itemIds.add(payload.item.id);
-                  updated.set(payload.turnId, itemIds);
-                  return updated;
-                });
-              }
+              const phase = payload.item.phase;
+              yield* Ref.update(pendingAgentMessagePhasesByTurn, (current) => {
+                const updated = new Map(current);
+                const items = new Map(updated.get(payload.turnId));
+                items.set(payload.item.id, phase);
+                updated.set(payload.turnId, items);
+                return updated;
+              });
               return;
             }
 
@@ -5021,11 +5052,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 threadId: artifacts.node.threadId,
                 runtimeRequest: artifacts.request,
               });
-              yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
+              yield* Ref.update(pendingAgentMessagePhasesByTurn, (current) => {
                 const ids = current.get(payload.turnId);
                 if (!ids?.has(payload.item.id)) return current;
                 const next = new Map(current);
-                const remaining = new Set(ids);
+                const remaining = new Map(ids);
                 remaining.delete(payload.item.id);
                 if (remaining.size === 0) next.delete(payload.turnId);
                 else next.set(payload.turnId, remaining);
@@ -5034,16 +5065,23 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               return;
             }
 
-            const finalAnswer = payload.item.phase !== "commentary";
-            if (finalAnswer) {
-              yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
-                const updated = new Map(current);
-                const itemIds = new Set(updated.get(payload.turnId) ?? []);
-                itemIds.add(payload.item.id);
-                updated.set(payload.turnId, itemIds);
-                return updated;
-              });
-            }
+            const phase = payload.item.phase;
+            const finalAnswer = phase !== "commentary";
+            const pendingItems = (yield* Ref.get(pendingAgentMessagePhasesByTurn)).get(
+              payload.turnId,
+            );
+            const reconcileFromItemIds = new Set(
+              Array.from(pendingItems ?? [])
+                .filter(([, pendingPhase]) => pendingPhase === phase)
+                .map(([id]) => id),
+            );
+            yield* Ref.update(pendingAgentMessagePhasesByTurn, (current) => {
+              const updated = new Map(current);
+              const items = new Map(updated.get(payload.turnId));
+              items.set(payload.item.id, phase);
+              updated.set(payload.turnId, items);
+              return updated;
+            });
             const completedTextsBefore =
               (yield* Ref.get(completedFinalAnswerTextsByTurn)).get(payload.turnId) ??
               new Set<string>();
@@ -5051,14 +5089,20 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               turnId: payload.turnId,
               itemId: payload.item.id,
               finalText: payload.item.text,
+              // A completion with its own started identity is a separate item.
+              // Only a new ID can finish one pending stream in the same phase.
+              ...(!context.itemPositions.has(payload.item.id) &&
+              !context.agentMessageAliases.has(payload.item.id)
+                ? { reconcileFromItemIds }
+                : {}),
             });
-            yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
+            yield* Ref.update(pendingAgentMessagePhasesByTurn, (current) => {
               const itemIds = current.get(payload.turnId);
               if (itemIds === undefined || !itemIds.has(payload.item.id)) {
                 return current;
               }
               const updated = new Map(current);
-              const remainingItemIds = new Set(itemIds);
+              const remainingItemIds = new Map(itemIds);
               remainingItemIds.delete(payload.item.id);
               if (remainingItemIds.size === 0) {
                 updated.delete(payload.turnId);
@@ -5992,7 +6036,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   updated.delete(input.nativeTurnId);
                   return updated;
                 });
-                yield* Ref.update(finalAnswerItemIdsByTurn, (current) => {
+                yield* Ref.update(pendingAgentMessagePhasesByTurn, (current) => {
                   if (!current.has(input.nativeTurnId)) {
                     return current;
                   }
@@ -6066,6 +6110,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             subagent: null,
             startedAt: now,
             itemPositions: new Map(),
+            agentMessageAliases: new Map(),
           };
           const providerTurn = {
             id: context.providerTurnId,

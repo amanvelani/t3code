@@ -301,6 +301,58 @@ describe("CodexAdapterV2 assistant message streaming", () => {
     }),
   );
 
+  it.effect.each([
+    {
+      name: "ambiguous prefixes",
+      buffers: [
+        { turnId: "turn-1", itemId: "first", text: "Report" },
+        { turnId: "turn-1", itemId: "second", text: "Rep" },
+      ],
+      expectedIds: ["completed", "first", "second"],
+    },
+    {
+      name: "a different turn",
+      buffers: [{ turnId: "turn-2", itemId: "first", text: "Report" }],
+      expectedIds: ["completed", "first"],
+    },
+    {
+      name: "different text",
+      buffers: [{ turnId: "turn-1", itemId: "first", text: "Working" }],
+      expectedIds: ["completed", "first"],
+    },
+    {
+      name: "an empty stream",
+      buffers: [{ turnId: "turn-1", itemId: "first", text: "" }],
+      expectedIds: ["completed"],
+    },
+  ])("does not reconcile completion identity for $name", ({ buffers, expectedIds }) =>
+    Effect.gen(function* () {
+      const updates = yield* Ref.make<ReadonlyArray<ProviderTextDeltaUpdate>>([]);
+      const coalescer = yield* makeProviderTextDeltaCoalescer({
+        flushIntervalMs: 50,
+        emit: (update) => Ref.update(updates, (current) => [...current, update]),
+      });
+      for (const buffer of buffers) {
+        yield* coalescer.append({ ...buffer, delta: buffer.text });
+      }
+      yield* coalescer.complete({
+        turnId: "turn-1",
+        itemId: "completed",
+        finalText: "Report complete",
+        reconcileFromItemIds: new Set(["first", "second"]),
+      });
+      yield* coalescer.flushTurn("turn-1");
+      yield* coalescer.flushTurn("turn-2");
+
+      const completed = yield* Ref.get(updates);
+      assert.deepEqual(
+        completed.map((update) => update.itemId),
+        expectedIds,
+      );
+      assert.equal(completed[0]!.text, "Report complete");
+    }),
+  );
+
   it.effect("retains buffered text until completion updates are emitted", () =>
     Effect.gen(function* () {
       const updates = yield* Ref.make<ReadonlyArray<ProviderTextDeltaUpdate>>([]);
@@ -3836,6 +3888,9 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       readonly omitPhase?: boolean;
       readonly streamed?: boolean;
       readonly completionDelayMs?: number;
+      readonly completionId?: string;
+      readonly streamedText?: string;
+      readonly completionPhase?: "commentary" | "final_answer" | null;
     }>,
   ) => {
     const nativeThreadId = `native-${scenario}-thread`;
@@ -3861,9 +3916,11 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                 params: {
                   item: {
                     type: "agentMessage",
-                    id: answer.id,
+                    id: answer.completionId ?? answer.id,
                     text: answer.text,
-                    ...phase,
+                    ...(answer.completionPhase === undefined
+                      ? phase
+                      : { phase: answer.completionPhase }),
                     memoryCitation: null,
                   },
                   threadId: nativeThreadId,
@@ -3904,7 +3961,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                     threadId: nativeThreadId,
                     turnId: nativeTurnId,
                     itemId: answer.id,
-                    delta: answer.text,
+                    delta: answer.streamedText ?? answer.text,
                   },
                 },
               },
@@ -4000,6 +4057,236 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         ),
       ),
     ),
+  );
+
+  it.effect.each([
+    { phase: "commentary" as const, completionDelayMs: 0 },
+    { phase: "commentary" as const, completionDelayMs: 100 },
+    { phase: "final_answer" as const, completionDelayMs: 0 },
+    { phase: "final_answer" as const, completionDelayMs: 100 },
+    { phase: "commentary" as const, completionDelayMs: 100, prefixLength: 37 },
+    { phase: "final_answer" as const, completionDelayMs: 100, prefixLength: 37 },
+  ])(
+    "reconciles a changed $phase completion ID after $completionDelayMs ms ($prefixLength prefix)",
+    ({ phase, completionDelayMs, prefixLength }) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const scenario = `codex-changed-${phase}-id-${completionDelayMs}`;
+          const text = "A sanitized investigation update. ".repeat(6).slice(0, 189);
+          const streamed = yield* Deferred.make<void>();
+          const harness = yield* makeCodexReplayHarness(
+            finalAnswerTranscript(scenario, [
+              {
+                id: "started",
+                completionId: "completed",
+                text,
+                ...(prefixLength === undefined
+                  ? {}
+                  : { streamedText: text.slice(0, prefixLength) }),
+                phase,
+                streamed: true,
+                completionDelayMs,
+              },
+            ]),
+            (event) =>
+              event.type === "turn_item.updated" &&
+              event.turnItem.type === "assistant_message" &&
+              event.turnItem.streaming
+                ? Deferred.succeed(streamed, undefined)
+                : Effect.void,
+          );
+          yield* harness.runtime.startTurn(
+            makeCodexTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now: yield* DateTime.now,
+              attemptId: RunAttemptId.make(scenario),
+              text: "Reply with the requested recovery marker.",
+            }),
+          );
+          if (completionDelayMs > 0) {
+            yield* TestClock.adjust("50 millis");
+            yield* Deferred.await(streamed);
+            yield* TestClock.adjust("50 millis");
+          }
+          yield* harness.firstTerminal;
+
+          const messages = assistantMessages(harness.events);
+          assert.deepEqual(
+            messages.map((event) => event.message.text),
+            [text],
+          );
+          const items = assistantTurnItems(harness.events);
+          assert.equal(new Set(items.map((item) => item.id)).size, 1);
+          const completed = items.at(-1)!;
+          assert.equal(completed.status, "completed");
+          assert.equal(completed.nativeItemRef?.nativeId, "completed");
+          assert.deepEqual(completed.startedAt, DateTime.makeUnsafe(1782622440500));
+          assert.equal(completed.ordinal, items[0]!.ordinal);
+          assert.deepEqual(messages[0]!.message.createdAt, completed.startedAt);
+          const nodes = harness.events
+            .filter((event) => event.type === "node.updated")
+            .filter((event) => event.node.kind === "assistant_message");
+          assert.equal(new Set(nodes.map((event) => event.node.id)).size, 1);
+          assert.equal(nodes.at(-1)!.node.nativeItemRef?.nativeId, "completed");
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+          ),
+        ),
+      ),
+  );
+
+  it.effect("preserves later identical commentary after reconciling a changed completion ID", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const scenario = "codex-reconciled-then-repeated-commentary";
+        const text = "Repeated commentary is a separate provider item.";
+        const harness = yield* makeCodexReplayHarness(
+          finalAnswerTranscript(scenario, [
+            { id: "started", completionId: "completed", text, phase: "commentary", streamed: true },
+            { id: "later", text, phase: "commentary", streamed: true },
+          ]),
+        );
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make(scenario),
+            text: "Reply with the requested recovery marker.",
+          }),
+        );
+        yield* harness.firstTerminal;
+
+        const messages = assistantMessages(harness.events);
+        assert.deepEqual(
+          messages.map((event) => event.message.text),
+          [text, text],
+        );
+        assert.equal(new Set(messages.map((event) => event.message.id)).size, 2);
+        assert.deepEqual(
+          assistantTurnItems(harness.events).map((item) => item.nativeItemRef?.nativeId),
+          ["completed", "later"],
+        );
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
+
+  it.effect.each([false, true])(
+    "retains a reconciled completion alias when another stream is pending: %s",
+    (anotherStreamPending) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const scenario = `codex-repeated-reconciled-completion-${anotherStreamPending}`;
+          const transcript = finalAnswerTranscript(scenario, [
+            {
+              id: "started",
+              completionId: "completed",
+              text: "Report complete",
+              phase: "commentary",
+              streamed: true,
+            },
+            ...(anotherStreamPending
+              ? [{ id: "pending", text: "Report", phase: "commentary" as const, streamed: true }]
+              : []),
+            { id: "completed", text: "Report complete", phase: "commentary" },
+          ]);
+          const harness = yield* makeCodexReplayHarness({
+            ...transcript,
+            entries: transcript.entries.filter(
+              (entry) => !("label" in entry) || entry.label !== "item/completed/pending",
+            ),
+          });
+          yield* harness.runtime.startTurn(
+            makeCodexTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now: yield* DateTime.now,
+              attemptId: RunAttemptId.make(scenario),
+              text: "Reply with the requested recovery marker.",
+            }),
+          );
+          yield* harness.firstTerminal;
+
+          const messages = new Map(
+            assistantMessages(harness.events).map((event) => [event.message.id, event.message]),
+          );
+          assert.deepEqual(
+            Array.from(messages.values(), (message) => message.text),
+            anotherStreamPending ? ["Report complete", "Report"] : ["Report complete"],
+          );
+          const items = new Map(assistantTurnItems(harness.events).map((item) => [item.id, item]));
+          assert.deepEqual(
+            Array.from(items.values(), (item) => item.nativeItemRef?.nativeId),
+            anotherStreamPending ? ["completed", "pending"] : ["completed"],
+          );
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+          ),
+        ),
+      ),
+  );
+
+  it.effect.each([
+    { name: "a different phase", completionPhase: "final_answer" as const, separateStart: false },
+    {
+      name: "a separately started item",
+      completionPhase: "commentary" as const,
+      separateStart: true,
+    },
+  ])(
+    "keeps $name separate from an unfinished commentary",
+    ({ name, completionPhase, separateStart }) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const scenario = `codex-distinct-commentary-${name}`;
+          const transcript = finalAnswerTranscript(scenario, [
+            { id: "unfinished", text: "Report", phase: "commentary", streamed: true },
+            {
+              id: "separate",
+              text: "Report complete",
+              phase: completionPhase,
+              streamed: separateStart,
+            },
+          ]);
+          const harness = yield* makeCodexReplayHarness({
+            ...transcript,
+            entries: transcript.entries.filter(
+              (entry) =>
+                !("label" in entry) ||
+                (entry.label !== "item/completed/unfinished" &&
+                  entry.label !== "item/agentMessage/delta/separate"),
+            ),
+          });
+          yield* harness.runtime.startTurn(
+            makeCodexTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now: yield* DateTime.now,
+              attemptId: RunAttemptId.make(scenario),
+              text: "Reply with the requested recovery marker.",
+            }),
+          );
+          yield* harness.firstTerminal;
+
+          const messages = assistantMessages(harness.events);
+          assert.equal(new Set(messages.map((event) => event.message.id)).size, 2);
+          assert.deepEqual(
+            new Set(messages.map((event) => event.message.text)),
+            new Set(["Report", "Report complete"]),
+          );
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+          ),
+        ),
+      ),
   );
 
   it.effect("streams text on the turn item and sends the message once, when it completes", () =>
