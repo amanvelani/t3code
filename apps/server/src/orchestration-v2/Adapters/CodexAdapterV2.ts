@@ -1331,6 +1331,10 @@ export const CODEX_THREAD_CONFIG = {
   mcp_optional_startup_grace_ms: 10_000,
 } as const;
 
+// T3 wait tools can block for up to an hour. Keep Codex's MCP timeout above
+// that limit so the server's own wait timeout ends a long call.
+const CODEX_T3_MCP_TOOL_TIMEOUT_SEC = 65 * 60;
+
 export function codexThreadRuntimeParams(input: {
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
   readonly modelSelection?: { readonly model: string };
@@ -1352,6 +1356,7 @@ export function codexThreadRuntimeParams(input: {
             mcp_servers: {
               "t3-code": {
                 url: mcpSession.endpoint,
+                tool_timeout_sec: CODEX_T3_MCP_TOOL_TIMEOUT_SEC,
                 http_headers: {
                   Authorization: mcpSession.authorizationHeader,
                 },
@@ -4361,6 +4366,27 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               turnId: payload.turnId,
               itemId: payload.itemId,
               delta: payload.delta,
+            });
+          }),
+        );
+
+        yield* client.handleServerNotification("item/commandExecution/outputDelta", (payload) =>
+          Effect.gen(function* () {
+            // A delta always follows its item/started, so the turn is already
+            // known; background commands keep printing after it settles.
+            const context =
+              (yield* Ref.get(activeTurns)).get(payload.turnId) ??
+              (yield* Ref.get(settledTurns)).get(payload.turnId);
+            if (context === undefined) return;
+            yield* emitProviderEvent({
+              type: "command_output.delta",
+              driver: CODEX_PROVIDER,
+              threadId: context.projectionThreadId,
+              itemId: idAllocator.derive.turnItemFromProviderItem({
+                driver: CODEX_PROVIDER,
+                nativeItemId: payload.itemId,
+              }),
+              chunk: payload.delta,
             });
           }),
         );
