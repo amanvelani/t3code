@@ -15,7 +15,10 @@ layer("055_OrchestrationV2", (it) => {
       yield* runMigrations({ toMigrationInclusive: 63 });
       const ledger = yield* sql`SELECT * FROM effect_sql_migrations ORDER BY migration_id`;
 
-      assert.deepStrictEqual(yield* runMigrations(), [[64, "ThreadFailureLookupIndex"]]);
+      assert.deepStrictEqual(yield* runMigrations(), [
+        [64, "ThreadFailureLookupIndex"],
+        [65, "DropUnusedV1Projections"],
+      ]);
       assert.deepStrictEqual(
         yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 63 ORDER BY migration_id`,
         ledger,
@@ -37,7 +40,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 64 }, (_, index) => index + 1),
+        Array.from({ length: 65 }, (_, index) => index + 1),
       );
     }),
   );
@@ -60,6 +63,7 @@ layer("055_OrchestrationV2", (it) => {
         [62, "ThreadSnapshotWindowIndexes"],
         [63, "PullRequestReviewGuides"],
         [64, "ThreadFailureLookupIndex"],
+        [65, "DropUnusedV1Projections"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -90,6 +94,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 62, name: "ThreadSnapshotWindowIndexes" },
         { migration_id: 63, name: "PullRequestReviewGuides" },
         { migration_id: 64, name: "ThreadFailureLookupIndex" },
+        { migration_id: 65, name: "DropUnusedV1Projections" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

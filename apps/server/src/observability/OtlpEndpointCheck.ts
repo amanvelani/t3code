@@ -20,12 +20,6 @@ const CHECK_TIMEOUT = "5 seconds";
 export class OtlpEndpointCheck extends Context.Service<
   OtlpEndpointCheck,
   {
-    /**
-     * When network telemetry is enabled, posts an empty export for the signal
-     * to `url` using its running protocol. Credentials are used only for its exact
-     * running endpoint, and redirects are not followed. Receivers accept an
-     * empty export without storing anything.
-     */
     readonly check: (input: OtlpEndpointCheckInput) => Effect.Effect<OtlpEndpointCheckResult>;
   }
 >()("t3/observability/OtlpEndpointCheck") {}
@@ -60,7 +54,6 @@ const make = Effect.gen(function* () {
   }: OtlpEndpointCheckInput) {
     if (!NETWORK_TELEMETRY_ENABLED) return { _tag: "Disabled" } as const;
     const { url: runningUrl, export: signalExport } = running[signal];
-    // Keep credentials paired with the running endpoint, regardless of source.
     const headers = url === runningUrl ? signalExport.headers : undefined;
     const body = yield* Effect.gen(function* () {
       const serialization = yield* OtlpSerialization.OtlpSerialization;
