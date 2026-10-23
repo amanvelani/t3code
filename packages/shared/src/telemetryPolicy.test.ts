@@ -23,8 +23,10 @@ it.effect("rejects environment, bootstrap and saved telemetry endpoints for ever
             otel,
             signal,
             { url, export: ownExport },
-            "https://bootstrap.example/",
-            "https://settings.example/",
+            {
+              bootstrapUrl: "https://bootstrap.example/",
+              settingsUrl: "https://settings.example/",
+            },
           ),
         );
       }

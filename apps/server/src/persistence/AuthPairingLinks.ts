@@ -1,4 +1,5 @@
 import * as Context from "effect/Context";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -302,6 +303,7 @@ export const make = Effect.gen(function* () {
 
   const listActive: AuthPairingLinkRepository["Service"]["listActive"] = (input) =>
     listActivePairingLinkRows(input).pipe(
+      NodeSqliteClient.readOnly,
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "AuthPairingLinkRepository.listActive:query",
@@ -337,6 +339,7 @@ export const make = Effect.gen(function* () {
 
   const getByCredential: AuthPairingLinkRepository["Service"]["getByCredential"] = (input) =>
     getPairingLinkRowByCredential(input).pipe(
+      NodeSqliteClient.readOnly,
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "AuthPairingLinkRepository.getByCredential:query",

@@ -2,6 +2,7 @@ import * as Migrator from "effect/sql/Migrator";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 import { reconcileForkMigrationHistory } from "./reconcileForkMigrationHistory.ts";
+import { reconcileUpstreamMigrationHistory } from "./reconcileUpstreamMigrationHistory.ts";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
 
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
@@ -70,8 +71,13 @@ import Migration0063 from "./Migrations/063_PullRequestReviewGuides.ts";
 import Migration0064 from "./Migrations/064_ThreadFailureLookupIndex.ts";
 
 import Migration0065 from "./Migrations/065_DropUnusedV1Projections.ts";
+import Migration0066 from "./Migrations/066_CanonicalizeThreadPullRequestLinks.ts";
+import Migration0067 from "./Migrations/067_CodexUsageNativeTurnIndex.ts";
+import Migration0068 from "./Migrations/068_RepairClientSettlementTimestamps.ts";
+import Migration0069 from "./Migrations/069_WebhookDedupe.ts";
+import Migration0070 from "./Migrations/070_ShellStopRequestIndex.ts";
 
-export const migrationEntries = [
+const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
   [2, "OrchestrationCommandReceipts", Migration0002],
   [3, "CheckpointDiffBlobs", Migration0003],
@@ -129,6 +135,7 @@ export const migrationEntries = [
   // Preserve this migration's schema. Future V2 schema changes need new migrations.
   [55, "OrchestrationV2", Migration0055],
   [56, "RemoveRedundantProjectionIndexes", Migration0056],
+  // Released fork IDs are durable. Upstream histories are reconciled before loading.
   [57, "RemoveAuthSessionIdentifyingMetadata", Migration0057],
   [58, "ReusablePairingLinks", Migration0058],
   [59, "ScheduledTaskWebhooks", Migration0059],
@@ -138,6 +145,11 @@ export const migrationEntries = [
   [63, "PullRequestReviewGuides", Migration0063],
   [64, "ThreadFailureLookupIndex", Migration0064],
   [65, "DropUnusedV1Projections", Migration0065],
+  [66, "CanonicalizeThreadPullRequestLinks", Migration0066],
+  [67, "CodexUsageNativeTurnIndex", Migration0067],
+  [68, "RepairClientSettlementTimestamps", Migration0068],
+  [69, "WebhookDedupe", Migration0069],
+  [70, "ShellStopRequestIndex", Migration0070],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -205,6 +217,7 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_V2_MIGRATION_ID;
   const previewMigrations = includesV2 ? yield* reconcileV2PreviewMigration() : [];
   if (includesV2) {
+    yield* reconcileUpstreamMigrationHistory(migrationManifest);
     yield* assertV2MigrationsCanRun(toMigrationInclusive);
   }
   const executedMigrations = [
