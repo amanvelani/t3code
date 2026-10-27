@@ -58,6 +58,7 @@ it.effect("preserves application failures without exporting mobile spans", () =>
     },
     {
       appVariant: "test",
+      serviceInstanceId: "test-instance",
       serviceVersion: "1.2.3",
     },
   ).pipe(Layer.provide(layerRemoteHttpClient(fetchFn)));
