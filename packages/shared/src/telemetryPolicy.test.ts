@@ -54,7 +54,12 @@ it.effect("does not create or flush a relay exporter even with valid credentials
       tracesDataset: "traces",
       tracesToken: "test-token",
     },
-    { serviceName: "privacy-test", runtime: "test", client: "test" },
+    {
+      serviceName: "privacy-test",
+      serviceInstanceId: "privacy-test",
+      runtime: "test",
+      client: "test",
+    },
   );
   return Effect.gen(function* () {
     yield* Effect.scoped(
