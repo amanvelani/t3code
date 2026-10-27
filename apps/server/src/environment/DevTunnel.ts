@@ -38,7 +38,7 @@ export class DevTunnel extends Context.Service<
   }
 >()("t3/environment/DevTunnel") {}
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -75,17 +75,17 @@ export const make = Effect.gen(function* () {
   let active: Scope.Closeable | undefined;
   const clearUrl = fs.remove(urlPath, { force: true }).pipe(Effect.ignore);
 
-  const persist = (next: typeof PersistedConfig.Type) =>
-    Effect.gen(function* () {
+  const persist = Effect.fn("DevTunnel.persist")(
+    function* (next: typeof PersistedConfig.Type) {
       const temporary = yield* fs.makeTempFileScoped({ directory: serverConfig.stateDir });
       const json = yield* encodeConfig(next);
       yield* fs.writeFileString(temporary, json);
       yield* fs.rename(temporary, configPath);
       persisted = next;
-    }).pipe(
-      Effect.scoped,
-      Effect.mapError((cause) => new DevTunnelError({ reason: "configuration", cause })),
-    );
+    },
+    Effect.scoped,
+    Effect.mapError((cause) => new DevTunnelError({ reason: "configuration", cause })),
+  );
 
   const run = (args: ReadonlyArray<string>) =>
     runner.run({ command: binary, args, timeout: "30 seconds", maxOutputBytes: 64 * 1024 }).pipe(
@@ -193,19 +193,18 @@ export const make = Effect.gen(function* () {
             const ready = yield* Deferred.make<string, DevTunnelError>();
             const childScope = yield* Scope.make();
             active = childScope;
-            const fail = (cause: unknown) =>
-              Effect.gen(function* () {
-                if (active !== childScope) return;
-                const error = new DevTunnelError({ reason: "start-failed", cause });
-                yield* clearUrl;
-                yield* SubscriptionRef.set(state, {
-                  enabled: true,
-                  status: "failed",
-                  url: null,
-                  error: error.message,
-                });
-                yield* Deferred.fail(ready, error);
+            const fail = Effect.fn("DevTunnel.fail")(function* (cause: unknown) {
+              if (active !== childScope) return;
+              const error = new DevTunnelError({ reason: "start-failed", cause });
+              yield* clearUrl;
+              yield* SubscriptionRef.set(state, {
+                enabled: true,
+                status: "failed",
+                url: null,
+                error: error.message,
               });
+              yield* Deferred.fail(ready, error);
+            });
             yield* Effect.forkIn(
               Effect.gen(function* () {
                 const child = yield* spawner

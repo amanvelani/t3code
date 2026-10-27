@@ -131,13 +131,16 @@ function serverOsFromNodePlatform(platform: string): ClientOs {
 }
 
 /** @public */
-/** @public */
 export const make = Effect.gen(function* () {
   if (!NETWORK_TELEMETRY_ENABLED) {
     return AnalyticsService.of({
-      record: () => Effect.void,
+      record: Effect.fn("AnalyticsService.record")(function () {
+        return Effect.void;
+      }),
       flush: Effect.void,
-      recordOwners: () => Effect.void,
+      recordOwners: Effect.fn("AnalyticsService.recordOwners")(function () {
+        return Effect.void;
+      }),
     });
   }
   const telemetryConfig = yield* TelemetryEnvConfig;
