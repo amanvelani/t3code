@@ -27,6 +27,7 @@ it.effect("keeps mobile spans off the network even with a configured collector",
     },
     {
       appVariant: "test",
+      serviceInstanceId: "test-instance",
       serviceVersion: "1.2.3",
     },
   ).pipe(Layer.provide(layerRemoteHttpClient(fetchFn)));
