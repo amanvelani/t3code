@@ -1,5 +1,6 @@
 import * as Alchemy from "alchemy";
-import * as Axiom from "alchemy/Axiom";
+import * as Axiom from "@alchemy.run/axiom";
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -20,6 +21,11 @@ it.effect("does not initialize or export worker telemetry when the fork policy d
           resources: {},
           bindings: {},
           actions: {},
+        }),
+        Effect.provideService(Cloudflare.Providers, {
+          kind: "ProviderCollection",
+          get: () => undefined,
+          providers: {},
         }),
         Effect.provideService(Axiom.Providers, {
           kind: "ProviderCollection",

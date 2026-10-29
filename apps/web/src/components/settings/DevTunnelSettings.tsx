@@ -9,7 +9,7 @@ import { useState } from "react";
 
 import { createServerPairingCredential } from "~/environments/primary";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
-import { setPairingTokenOnUrl } from "~/pairingUrl";
+import { setPairingTokenOnUrl } from "@t3tools/shared/remote";
 import { useEnvironmentQuery } from "~/state/query";
 import { serverEnvironment } from "~/state/server";
 import { useAtomCommand } from "~/state/use-atom-command";

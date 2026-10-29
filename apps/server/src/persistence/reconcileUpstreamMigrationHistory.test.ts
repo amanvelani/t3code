@@ -19,6 +19,9 @@ import RepairClientSettlementTimestamps from "./Migrations/068_RepairClientSettl
 import WebhookDedupe from "./Migrations/069_WebhookDedupe.ts";
 import ShellStopRequestIndex from "./Migrations/070_ShellStopRequestIndex.ts";
 import ThreadMessageSearch from "./Migrations/071_ThreadMessageSearch.ts";
+import PeerLinks from "./Migrations/072_PeerLinks.ts";
+import PeerLinkFence from "./Migrations/073_PeerLinkFence.ts";
+import WaitingLinkRequestIndex from "./Migrations/074_WaitingLinkRequestIndex.ts";
 
 const officialMigrations = [
   [57, "ScheduledTaskWebhooks", ScheduledTaskWebhooks],
@@ -34,6 +37,9 @@ const officialMigrations = [
   [67, "WebhookDedupe", WebhookDedupe],
   [68, "ShellStopRequestIndex", ShellStopRequestIndex],
   [69, "ThreadMessageSearch", ThreadMessageSearch],
+  [70, "PeerLinks", PeerLinks],
+  [71, "PeerLinkFence", PeerLinkFence],
+  [72, "WaitingLinkRequestIndex", WaitingLinkRequestIndex],
 ] as const;
 
 const seedOfficial = Effect.fnUntraced(function* (through: number) {
@@ -117,7 +123,7 @@ it.effect("upgrades the reported fork ledger at 65 without losing existing conte
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
 
-it.effect.each([57, 62, 65, 67, 68, 69])(
+it.effect.each([57, 62, 65, 67, 68, 69, 70, 71, 72])(
   "upgrades official history through %s once and preserves content",
   (through) =>
     Effect.gen(function* () {

@@ -14,9 +14,8 @@ vi.mock("../environments/primary/httpLayer", () => ({ layer: Layer.empty }));
 vi.mock("../env", () => ({ isElectron: false }));
 vi.mock("~/branding", () => ({ APP_VERSION: "test" }));
 
-it("does not create a browser exporter for default or explicit tracing configuration", async () => {
+it("does not create a browser exporter when network telemetry is disabled", async () => {
   await configureClientTracing();
-  await configureClientTracing({ exportIntervalMs: 10 });
   expect(OtlpTracer.make).not.toHaveBeenCalled();
   expect(ClientTracer.hasDelegate()).toBe(false);
 });
