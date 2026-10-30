@@ -54,6 +54,7 @@ describe("V2 preview upgrade", () => {
         [72, "PeerLinks"],
         [73, "PeerLinkFence"],
         [74, "WaitingLinkRequestIndex"],
+        [75, "ActiveTurnItemIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -151,6 +152,7 @@ describe("V2 preview upgrade", () => {
         [72, "PeerLinks"],
         [73, "PeerLinkFence"],
         [74, "WaitingLinkRequestIndex"],
+        [75, "ActiveTurnItemIndexes"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
