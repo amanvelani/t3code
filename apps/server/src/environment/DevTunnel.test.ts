@@ -15,6 +15,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as DevTunnel from "./DevTunnel.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 
 const setup = (
   options: {
@@ -24,6 +25,7 @@ const setup = (
     missingBinary?: boolean;
     currentCliOutput?: boolean;
     waitForReady?: boolean;
+    remoteAllowed?: boolean;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -102,6 +104,13 @@ const setup = (
       return Effect.acquireRelease(Effect.succeed(handle), () => handle.kill().pipe(Effect.orDie));
     });
     const make = DevTunnel.make.pipe(
+      Effect.provide(
+        ManagedPolicy.layerTest(
+          options.remoteAllowed === false
+            ? { schemaVersion: 1, organization: "Test", limits: { clients: ["local-browser"] } }
+            : undefined,
+        ),
+      ),
       Effect.provideService(ServerConfig.ServerConfig, config),
       Effect.provideService(ProcessRunner.ProcessRunner, runner),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
@@ -118,6 +127,21 @@ const setup = (
   });
 
 describe("Dev Tunnels", () => {
+  it.effect("refuses remote hosting under managed policy before spawning a process", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const h = yield* setup({ remoteAllowed: false });
+        const result = yield* Effect.result(h.service.setEnabled(true));
+        expect(result._tag === "Failure" && result.failure.reason).toBe("configuration");
+        expect(h.calls).toEqual([]);
+        expect(yield* h.service.setEnabled(false)).toMatchObject({
+          enabled: false,
+          status: "stopped",
+        });
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("stops its host when startup is interrupted and allows a retry", () =>
     Effect.scoped(
       Effect.gen(function* () {

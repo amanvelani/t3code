@@ -35,6 +35,13 @@ it.effect("upgrades the released fork ledger to V2 without skipping schema chang
       [69, "WebhookDedupe"],
       [70, "ShellStopRequestIndex"],
       [71, "ThreadMessageSearch"],
+      [72, "PeerLinks"],
+      [73, "PeerLinkFence"],
+      [74, "WaitingLinkRequestIndex"],
+      [75, "ActiveTurnItemIndexes"],
+      [76, "ExcludeAttachmentPlaceholdersFromSearch"],
+      [77, "SubagentDeliveryState"],
+      [78, "ProjectionProjectsPinArchive"],
     ]);
     const rows = yield* sql<{
       migration_id: number;

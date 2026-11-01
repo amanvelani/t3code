@@ -33,6 +33,8 @@ import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } fr
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
+import * as ManagedLimits from "../policy/managedLimits.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import { resolveBaseDir } from "../os-jank.ts";
 import {
   type PersistedServerRuntimeState,
@@ -407,7 +409,7 @@ const resolveTailscalePairingBase = Effect.fn("pair.resolveTailscalePairingBase"
       ),
     );
     notes.push(
-      `Tailscale Serve now maps ${baseUrl} to this server and persists across restarts. Remove it with \`tailscale serve --https=${String(input.servePort)} off\`.`,
+      `Tailscale Serve now maps ${baseUrl} to this server and persists across restarts. Remove it with \`tailscale serve --https=${String(input.servePort)} --set-path=/ off\`.`,
     );
 
     const probed = yield* awaitEnvironmentDescriptor(baseUrl);
@@ -510,6 +512,15 @@ export const pairCommand = Command.make("pair", {
 
       const notes: Array<string> = [];
       let pairingBaseUrl: string;
+      if (flags.devTunnel || flags.tailscale) {
+        const policy = yield* ManagedPolicy.ManagedPolicy.pipe(Effect.provide(ManagedPolicy.layer));
+        if (!ManagedLimits.allowsRemoteClients(policy)) {
+          return yield* ManagedLimits.refuseRemoteClients(
+            policy,
+            "so a remote pairing link cannot be created",
+          );
+        }
+      }
       if (flags.devTunnel) {
         if (flags.tailscale) return yield* new DevTunnelError({ reason: "configuration" });
         const fs = yield* FileSystem.FileSystem;
@@ -534,7 +545,7 @@ export const pairCommand = Command.make("pair", {
         pairingBaseUrl = resolveDirectPairingBaseUrl(target.state);
         if (isLoopbackHost(new URL(pairingBaseUrl).hostname)) {
           notes.push(
-            "This URL is only reachable from this machine. Re-run with --tailscale, or restart the server with a reachable --host.",
+            "This URL is only reachable from this machine. To reach it from your other devices, run `t3 up`, or re-run with --tailscale.",
           );
         } else if (target.state.privateNetworkOnly) {
           notes.push(

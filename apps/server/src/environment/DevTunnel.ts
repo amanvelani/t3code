@@ -18,6 +18,8 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as ServerConfig from "../config.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import * as ManagedLimits from "../policy/managedLimits.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ServerActivation from "../serverActivation.ts";
 
@@ -44,6 +46,7 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
   const serverConfig = yield* ServerConfig.ServerConfig;
+  const managedPolicy = yield* ManagedPolicy.ManagedPolicy;
   const server = yield* HttpServer.HttpServer;
   const runner = yield* ProcessRunner.ProcessRunner;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -122,6 +125,15 @@ export const make = Effect.gen(function* () {
           };
           yield* SubscriptionRef.set(state, next);
           return next;
+        }
+        if (!ManagedLimits.allowsRemoteClients(managedPolicy)) {
+          return yield* new DevTunnelError({
+            reason: "configuration",
+            cause: ManagedLimits.refuseRemoteClients(
+              managedPolicy,
+              "so Dev Tunnels cannot be started",
+            ),
+          });
         }
         if (current.status === "running") return current;
         yield* stop;

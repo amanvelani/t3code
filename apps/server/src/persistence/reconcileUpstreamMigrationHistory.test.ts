@@ -25,6 +25,10 @@ import WaitingLinkRequestIndex from "./Migrations/074_WaitingLinkRequestIndex.ts
 
 import ActiveTurnItemIndexes from "./Migrations/075_ActiveTurnItemIndexes.ts";
 
+import ExcludeAttachmentPlaceholdersFromSearch from "./Migrations/076_ExcludeAttachmentPlaceholdersFromSearch.ts";
+import SubagentDeliveryState from "./Migrations/077_SubagentDeliveryState.ts";
+import ProjectionProjectsPinArchive from "./Migrations/078_ProjectionProjectsPinArchive.ts";
+
 const officialMigrations = [
   [57, "ScheduledTaskWebhooks", ScheduledTaskWebhooks],
   [58, "WebhookRelayDeliveries", WebhookRelayDeliveries],
@@ -43,6 +47,9 @@ const officialMigrations = [
   [71, "PeerLinkFence", PeerLinkFence],
   [72, "WaitingLinkRequestIndex", WaitingLinkRequestIndex],
   [73, "ActiveTurnItemIndexes", ActiveTurnItemIndexes],
+  [74, "ExcludeAttachmentPlaceholdersFromSearch", ExcludeAttachmentPlaceholdersFromSearch],
+  [75, "SubagentDeliveryState", SubagentDeliveryState],
+  [76, "ProjectionProjectsPinArchive", ProjectionProjectsPinArchive],
 ] as const;
 
 const seedOfficial = Effect.fnUntraced(function* (through: number) {
@@ -107,26 +114,28 @@ const content = Effect.gen(function* () {
   };
 });
 
-it.effect.each([65, 74])("upgrades fork ledger at %s without losing existing content", (through) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    yield* runMigrations({ toMigrationInclusive: through });
-    yield* seedContent;
-    const before = yield* content;
-    const ledger = yield* history;
-    assert.deepStrictEqual(
-      yield* runMigrations(),
-      migrationManifest.filter(([id]) => id > through),
-    );
-    assert.deepStrictEqual(yield* content, before);
-    assert.deepStrictEqual((yield* history).slice(0, through), ledger);
-    assert.deepStrictEqual(yield* runMigrations(), []);
-    assert.deepStrictEqual(yield* sql`PRAGMA integrity_check`, [{ integrity_check: "ok" }]);
-    assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
-  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+it.effect.each([65, 74, 75, 76, 77, 78])(
+  "upgrades fork ledger at %s without losing existing content",
+  (through) =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: through });
+      yield* seedContent;
+      const before = yield* content;
+      const ledger = yield* history;
+      assert.deepStrictEqual(
+        yield* runMigrations(),
+        migrationManifest.filter(([id]) => id > through),
+      );
+      assert.deepStrictEqual(yield* content, before);
+      assert.deepStrictEqual((yield* history).slice(0, through), ledger);
+      assert.deepStrictEqual(yield* runMigrations(), []);
+      assert.deepStrictEqual(yield* sql`PRAGMA integrity_check`, [{ integrity_check: "ok" }]);
+      assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
 
-it.effect.each([57, 62, 65, 67, 68, 69, 70, 71, 72, 73])(
+it.effect.each([57, 62, 65, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76])(
   "upgrades official history through %s once and preserves content",
   (through) =>
     Effect.gen(function* () {
