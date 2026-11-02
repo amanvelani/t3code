@@ -517,7 +517,9 @@ export const pairCommand = Command.make("pair", {
         if (!ManagedLimits.allowsRemoteClients(policy)) {
           return yield* ManagedLimits.refuseRemoteClients(
             policy,
-            "so a remote pairing link cannot be created",
+            flags.devTunnel
+              ? "so a remote pairing link cannot be created"
+              : "so Tailscale Serve cannot be turned on",
           );
         }
       }

@@ -13,6 +13,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as AnalyticsService from "./AnalyticsService.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 
 it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
   it.effect("does not identify or send events even with saved and environment opt-in", () =>
@@ -22,6 +23,7 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
         prefix: "t3-telemetry-disabled-",
       });
       const telemetryLayer = AnalyticsService.layer.pipe(
+        Layer.provide(ManagedPolicy.layerTest()),
         Layer.provideMerge(serverConfigLayer),
         Layer.provide(ServerSettings.layerTest({ enableTelemetry: true })),
       );

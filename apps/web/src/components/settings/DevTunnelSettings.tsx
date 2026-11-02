@@ -73,9 +73,8 @@ export function DevTunnelSettings({
       );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not create a pairing link.");
-    } finally {
-      setBusy(false);
     }
+    setBusy(false);
   };
 
   return (
