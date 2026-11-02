@@ -396,7 +396,6 @@ import {
   SourceControlRepositoryLookupInput,
   SourceControlAppAccess,
   SourceControlAppAccessInput,
-  SourceControlStarredInput,
   SourceControlSignInError,
   SourceControlSignInInput,
   SourceControlSignInPrompt,
@@ -596,7 +595,6 @@ export const WS_METHODS = {
   sourceControlSignInWait: "sourceControl.signInWait",
   sourceControlSignInCancel: "sourceControl.signInCancel",
   sourceControlAppAccess: "sourceControl.appAccess",
-  sourceControlStarred: "sourceControl.starred",
   projectCloneStart: "projectClone.start",
   projectCloneCancel: "projectClone.cancel",
   projectCloneRetry: "projectClone.retry",
@@ -1257,13 +1255,6 @@ const WsSourceControlSignInCancelRpc = Rpc.make(WS_METHODS.sourceControlSignInCa
 const WsSourceControlAppAccessRpc = Rpc.make(WS_METHODS.sourceControlAppAccess, {
   payload: SourceControlAppAccessInput,
   success: SourceControlAppAccess,
-  error: EnvironmentAuthorizationError,
-});
-
-// False when the server's forge account has not starred the repository or the forge cannot say.
-const WsSourceControlStarredRpc = Rpc.make(WS_METHODS.sourceControlStarred, {
-  payload: SourceControlStarredInput,
-  success: Schema.Boolean,
   error: EnvironmentAuthorizationError,
 });
 
@@ -2097,7 +2088,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsSourceControlSignInWaitRpc,
   WsSourceControlSignInCancelRpc,
   WsSourceControlAppAccessRpc,
-  WsSourceControlStarredRpc,
   WsProjectCloneStartRpc,
   WsProjectCloneCancelRpc,
   WsProjectCloneRetryRpc,
