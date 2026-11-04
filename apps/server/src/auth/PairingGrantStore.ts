@@ -9,7 +9,7 @@ import {
   isValidDesktopBootstrapToken,
 } from "@t3tools/shared/desktopBootstrapToken";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -264,7 +264,7 @@ const PAIRING_TOKEN_PATTERN = new RegExp(
 );
 
 const make = Effect.gen(function* () {
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const config = yield* ServerConfig.ServerConfig;
   const pairingLinks = yield* AuthPairingLinks.AuthPairingLinkRepository;
   const seededGrantsRef = yield* Ref.make(new Map<string, StoredBootstrapGrant>());
@@ -272,7 +272,7 @@ const make = Effect.gen(function* () {
   const generatePairingToken = Effect.gen(function* () {
     let credential = "";
     while (credential.length < PAIRING_TOKEN_LENGTH) {
-      const bytes = yield* crypto
+      const bytes = yield* random
         .randomBytes(PAIRING_TOKEN_LENGTH)
         .pipe(
           Effect.mapError(
@@ -374,8 +374,8 @@ const make = Effect.gen(function* () {
   const issuePairingToken: PairingGrantStore["Service"]["issuePairingToken"] = Effect.fn(
     "PairingGrantStore.issuePairingToken",
   )(function* (input) {
-    const id = yield* crypto
-      .randomUUIDv4()
+    const id = yield* random
+      .uuidV4()
       .pipe(
         Effect.mapError(
           (cause) =>
