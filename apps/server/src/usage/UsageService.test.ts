@@ -199,6 +199,7 @@ const layerService = (input: {
         HOME: input.home,
         GROK_HOME: NodePath.join(input.home, "grok"),
         PI_CODING_AGENT_DIR: NodePath.join(input.home, "pi"),
+        COPILOT_HOME: NodePath.join(input.home, "copilot"),
         OPENCODE_DATA_DIR: NodePath.join(input.home, "opencode"),
         ANTIGRAVITY_DATA_DIR: NodePath.join(input.home, "antigravity"),
         XDG_CONFIG_HOME: NodePath.join(input.home, "config"),
@@ -1201,6 +1202,125 @@ describe("UsageService", () => {
           ),
         );
       }).pipe(Effect.scoped),
+  );
+
+  it.live("scans Copilot homes once and resumes cached history with API-equivalent pricing", () =>
+    Effect.gen(function* () {
+      const { home, settings } = yield* setup;
+      const dir = NodePath.join(home, "copilot", "session-state", "session-1");
+      const file = NodePath.join(dir, "events.jsonl");
+      const shutdown = (id: string, model = "claude-opus-4.8") => ({
+        type: "session.shutdown",
+        id,
+        timestamp: "2026-08-01T10:00:00Z",
+        data: {
+          totalNanoAiu: 100_000_000_000,
+          modelMetrics: {
+            [model]: {
+              totalNanoAiu: 100_000_000_000,
+              requests: { cost: 30 },
+              usage: {
+                inputTokens: 100,
+                outputTokens: 20,
+                cacheReadTokens: 60,
+                cacheWriteTokens: 10,
+              },
+            },
+          },
+        },
+      });
+      const usageRecord = (id: string, model = "claude-opus-4.8") => ({
+        type: "session.usage_record",
+        id,
+        timestamp: "2026-08-01T09:59:00Z",
+        data: { usage: { model, ...shutdown(id, model).data.modelMetrics[model]!.usage } },
+      });
+      yield* Effect.promise(async () => {
+        await NodeFSP.mkdir(dir, { recursive: true });
+        await NodeFSP.writeFile(
+          file,
+          [
+            { type: "session.start", data: { sessionId: "session-1" } },
+            usageRecord("first"),
+            usageRecord("first"),
+          ]
+            .map((event) => encodeUnknownJsonString(event))
+            .join("\n") + "\n",
+        );
+        await NodeFSP.writeFile(
+          NodePath.join(dir, "other.jsonl"),
+          encodeUnknownJsonString(shutdown("not-history")) + "\n",
+        );
+      });
+      yield* Effect.gen(function* () {
+        const service = yield* UsageService.make;
+        const first = yield* service.readSummary(WINDOW);
+        const buckets = first.buckets.filter((bucket) => bucket.provider === "copilot");
+        assert.strictEqual(buckets.length, 1);
+        assert.strictEqual(buckets[0]?.records, 1);
+        assert.strictEqual(totalTokens(buckets[0]!.totals), 120);
+        assert.strictEqual(buckets[0]?.costSource, "modelPriced");
+        assert.closeTo(buckets[0]?.costUsd ?? NaN, 0.000162, 1e-12);
+        const sources = first.sources.filter((source) => source.fingerprint.provider === "copilot");
+        assert.strictEqual(sources.length, 1);
+        assert.strictEqual(sources[0]?.scannedFiles, 1);
+        assert.strictEqual(sources[0]?.distinctSessions, 1);
+        yield* Effect.promise(() =>
+          NodeFSP.appendFile(
+            file,
+            [shutdown("rollup"), usageRecord("next-call", "unknown-model")]
+              .map((event) => encodeUnknownJsonString(event))
+              .join("\n") + "\n",
+          ),
+        );
+        const restarted = yield* UsageService.make;
+        const refreshed = yield* restarted.readSummary(WINDOW);
+        const copilot = refreshed.buckets.filter((bucket) => bucket.provider === "copilot");
+        assert.strictEqual(
+          copilot.reduce((sum, bucket) => sum + bucket.records, 0),
+          2,
+        );
+        assert.strictEqual(
+          copilot.reduce((sum, bucket) => sum + totalTokens(bucket.totals), 0),
+          240,
+        );
+        assert.strictEqual(
+          copilot.find((bucket) => bucket.model === "unknown-model")?.unpricedRecords,
+          1,
+        );
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          layerService({
+            prefix: "usage-copilot",
+            home,
+            settings: {
+              ...settings,
+              providerInstances: {
+                ...settings.providerInstances,
+                [ProviderInstanceId.make("copilot")]: {
+                  driver: ProviderDriverKind.make("acpRegistry"),
+                  enabled: false,
+                  config: { agentId: "github-copilot-cli" },
+                },
+                [ProviderInstanceId.make("copilot-alias")]: {
+                  driver: ProviderDriverKind.make("acpRegistry"),
+                  config: { agentId: "github-copilot-cli" },
+                },
+              },
+            },
+            ratesDocument: {
+              "claude-opus-4-8": {
+                input_cost_per_token: 0.000002,
+                output_cost_per_token: 0.000004,
+                cache_read_input_token_cost: 0.0000002,
+                cache_creation_input_token_cost: 0.000001,
+              },
+            },
+          }),
+        ),
+      );
+    }).pipe(Effect.scoped),
   );
 
   it.live("reports missing Pi history and skips malformed records without losing valid usage", () =>

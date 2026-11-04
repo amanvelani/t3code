@@ -13,6 +13,7 @@ import {
   copilotClientCapabilitiesMeta,
   extractCopilotSubagentUpdate,
   isCopilotLostSessionError,
+  isCopilotAcpSettings,
   makeCopilotSubagentRouting,
 } from "./copilotAcp.ts";
 import { defaultInstanceIdForDriver, ProviderDriverKind } from "@t3tools/contracts";
@@ -188,10 +189,7 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
     options.settings.source === "local" ? `local:${options.instanceId}` : registryAgentId;
   const isDevin = registryAgentId === "devin";
   // Local installs launch the `copilot` binary directly with no registry id.
-  const isCopilot =
-    registryAgentId === "github-copilot-cli" ||
-    (options.settings.source === "local" &&
-      /^copilot(\.exe|\.cmd)?$/i.test(options.settings.commandPath.split(/[\\/]/).pop() ?? ""));
+  const isCopilot = isCopilotAcpSettings(options.settings);
   const isClaude =
     registryAgentId === "claude-acp" ||
     (options.settings.source === "local" &&

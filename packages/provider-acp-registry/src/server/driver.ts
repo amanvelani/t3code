@@ -16,6 +16,7 @@ import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import type * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
@@ -27,6 +28,7 @@ import { AcpRegistryAdapterV2Driver, type AcpRegistryAdapterV2DriverEnv } from "
 import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
+import { makeUnavailableUsageLimits } from "@t3tools/provider-core/server/usageLimits";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import {
   defaultProviderContinuationIdentity,
@@ -57,6 +59,9 @@ import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.ts";
 import * as AcpRegistryAuth from "./auth.ts";
 import * as AcpRegistryAuthenticationState from "./authenticationState.ts";
+import { copilotUsageReader } from "./copilotUsage.ts";
+import { readCopilotAccount } from "./copilotAccount.ts";
+import { isCopilotAcpSettings } from "./copilotAcp.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
 const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
@@ -469,8 +474,13 @@ export type AcpRegistryDriverEnv =
   | Digest.Digest
   | ProviderHost.ProviderHost;
 
-export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryDriverEnv> = {
+export const AcpRegistryDriver: ProviderDriver<
+  AcpRegistrySettings,
+  AcpRegistryDriverEnv,
+  Path.Path
+> = {
   driverKind: DRIVER_KIND,
+  usage: copilotUsageReader,
   metadata: {
     displayName: "ACP Registry",
     supportsMultipleInstances: true,
@@ -501,6 +511,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
     }
     const random = yield* SecureRandom.SecureRandom;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const digest = yield* Digest.Digest;
     const hostEnvironment = yield* HostProcess.Environment;
     const host = yield* ProviderHost.ProviderHost;
     const continuationIdentity = defaultProviderContinuationIdentity({
@@ -585,6 +596,45 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
     const checkProvider = checkAcpRegistryProviderReadiness(readinessInput).pipe(
       Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
       Effect.flatMap(withLiveRuntimeState),
+      Effect.flatMap(
+        Effect.fn("AcpRegistryDriver.readCopilotAccount")(function* (provider) {
+          if (!isCopilotAcpSettings(effectiveConfig) || !provider.enabled || !provider.installed)
+            return provider;
+          const resolved = yield* Effect.option(
+            catalog.resolve(effectiveConfig, host.paths.cwd, processEnvironment),
+          );
+          if (Option.isNone(resolved))
+            return {
+              ...provider,
+              usageLimits: makeUnavailableUsageLimits({
+                checkedAt: provider.checkedAt,
+                reason: "probeFailed",
+                message: "Copilot could not read subscription limits.",
+              }),
+            };
+          const account = yield* readCopilotAccount(resolved.value.spawn).pipe(
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+            Effect.provideService(Digest.Digest, digest),
+          );
+          if (account.authenticated !== undefined)
+            yield* confirmedAuthentication.set(account.authenticated);
+          return {
+            ...provider,
+            usageLimits: account.usageLimits,
+            auth: {
+              ...provider.auth,
+              ...(account.authenticated === undefined
+                ? {}
+                : {
+                    status: account.authenticated
+                      ? ("authenticated" as const)
+                      : ("unauthenticated" as const),
+                  }),
+              ...(account.accountId ? { workspaceId: account.accountId } : {}),
+            },
+          };
+        }),
+      ),
     );
     const enrichProvider = checkAcpRegistryProviderStatus(
       {
@@ -612,6 +662,20 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
     const enrichProviderCached = Effect.fn("AcpRegistryDriver.enrichProviderCached")(function* (
       baseSnapshot: ServerProvider,
     ) {
+      const retainCopilotAccount = (provider: ServerProvider) =>
+        isCopilotAcpSettings(effectiveConfig)
+          ? {
+              ...provider,
+              auth: {
+                ...provider.auth,
+                status: baseSnapshot.auth.status,
+                ...(baseSnapshot.auth.workspaceId
+                  ? { workspaceId: baseSnapshot.auth.workspaceId }
+                  : {}),
+              },
+              ...(baseSnapshot.usageLimits ? { usageLimits: baseSnapshot.usageLimits } : {}),
+            }
+          : provider;
       const now = yield* Clock.currentTimeMillis;
       const cacheState = yield* Ref.get(enrichmentCache);
       const cached = cacheState.entry;
@@ -621,7 +685,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         cached.provider.version === baseSnapshot.version
       ) {
         return {
-          provider: { ...cached.provider, checkedAt: baseSnapshot.checkedAt },
+          provider: retainCopilotAccount({ ...cached.provider, checkedAt: baseSnapshot.checkedAt }),
           generation: cacheState.generation,
         };
       }
@@ -639,7 +703,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
             : current,
         );
       }
-      return { provider: enriched, generation: cacheState.generation };
+      return { provider: retainCopilotAccount(enriched), generation: cacheState.generation };
     });
     const snapshotSettings = yield* makeProviderSnapshotSettingsSource(effectiveConfig);
     const snapshot = yield* makeManagedServerProvider<

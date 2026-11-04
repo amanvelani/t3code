@@ -7,6 +7,13 @@ import type {
   AcpAdapterV2ExtensionContext,
   AcpAdapterV2SubagentUpdate,
 } from "@t3tools/provider-acp/server/adapter";
+import type { AcpRegistrySettings } from "../settings.ts";
+
+export function isCopilotAcpSettings(settings: AcpRegistrySettings): boolean {
+  return settings.source === "registry"
+    ? settings.agentId === "github-copilot-cli"
+    : /^copilot(\.exe|\.cmd)?$/i.test(settings.commandPath.split(/[\\/]/).pop() ?? "");
+}
 
 // The opt-in raw feed identifies each chunk by the preceding assistant.*_delta task call id.
 
