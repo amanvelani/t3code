@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -15,7 +16,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as AnalyticsService from "./AnalyticsService.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 
-it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
+it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("AnalyticsService test", (it) => {
   it.effect("does not identify or send events even with saved and environment opt-in", () =>
     Effect.gen(function* () {
       const capturedRequests: Array<{ path: string; body: null }> = [];

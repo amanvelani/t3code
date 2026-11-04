@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -67,7 +68,7 @@ const setup = (
     });
     const spawner = ChildProcessSpawner.make((command) => {
       if (command._tag !== "StandardCommand") return Effect.die("Unexpected pipeline");
-      calls.push(command.args);
+      calls.push(command.args.map(String));
       const handle = ChildProcessSpawner.makeHandle({
         pid: ChildProcessSpawner.ProcessId(123),
         exitCode: options.hostFails
@@ -139,7 +140,7 @@ describe("Dev Tunnels", () => {
           status: "stopped",
         });
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
   it.effect("stops its host when startup is interrupted and allows a retry", () =>
@@ -155,7 +156,7 @@ describe("Dev Tunnels", () => {
         expect(yield* h.fs.exists(h.path.join(h.config.stateDir, "dev-tunnel-url"))).toBe(false);
         expect(yield* h.service.setEnabled(false)).toMatchObject({ status: "stopped" });
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
   it.effect("reads the browser URL from current CLI output without selecting the inspector", () =>
     Effect.scoped(
@@ -165,7 +166,7 @@ describe("Dev Tunnels", () => {
           "https://example-3773.usw2.devtunnels.ms",
         );
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
   it.effect("hosts privately, parses split output, and stops only its own child", () =>
     Effect.scoped(
@@ -194,7 +195,7 @@ describe("Dev Tunnels", () => {
           1,
         );
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
   it.effect("reuses the persisted tunnel and automatically resumes after a server restart", () =>
@@ -216,7 +217,7 @@ describe("Dev Tunnels", () => {
         expect(running[0]?.url).toBe("https://example-3773.usw2.devtunnels.ms/");
         expect(h.calls.filter((args) => args[0] === "create")).toHaveLength(1);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
   it.effect("requires account login before creating or hosting a tunnel", () =>
@@ -227,7 +228,7 @@ describe("Dev Tunnels", () => {
         expect(result._tag === "Failure" && result.failure.reason).toBe("login-required");
         expect(h.calls).toEqual([["user", "show"]]);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
   it.effect("surfaces early host failure and releases the process without a timeout", () =>
@@ -239,7 +240,7 @@ describe("Dev Tunnels", () => {
         expect(h.stops()).toBe(1);
         expect(yield* h.fs.exists(h.path.join(h.config.stateDir, "dev-tunnel-url"))).toBe(false);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
   it.effect(
@@ -255,7 +256,7 @@ describe("Dev Tunnels", () => {
             yield* h.fs.readFileString(h.path.join(h.config.stateDir, "dev-tunnel.json")),
           ).toBe("invalid");
         }),
-      ).pipe(Effect.provide(NodeServices.layer)),
+      ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
   it.effect("reports a missing CLI before making any tunnel changes", () =>
@@ -266,7 +267,7 @@ describe("Dev Tunnels", () => {
         expect(result._tag === "Failure" && result.failure.reason).toBe("not-installed");
         expect(h.calls).toEqual([]);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 
   it.effect("publishes a disconnected state and clears the URL if the host exits", () =>
@@ -288,6 +289,6 @@ describe("Dev Tunnels", () => {
         });
         expect(yield* h.fs.exists(h.path.join(h.config.stateDir, "dev-tunnel-url"))).toBe(false);
       }),
-    ).pipe(Effect.provide(NodeServices.layer)),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
   );
 });
