@@ -6,10 +6,9 @@ type UsageProviderPresentation = {
   readonly label: string;
   readonly color: string;
   readonly driverKind: ProviderDriverKind;
-  readonly acpRegistryAgentId?: string;
 };
 
-export const PROVIDER_PRESENTATION: Record<UsageProviderKind, UsageProviderPresentation> = {
+export const PROVIDER_PRESENTATION = {
   codex: {
     label: "Codex",
     color: "var(--contrast-foreground)",
@@ -46,13 +45,7 @@ export const PROVIDER_PRESENTATION: Record<UsageProviderKind, UsageProviderPrese
     color: "#0866ff",
     driverKind: ProviderDriverKind.make("muse"),
   },
-  copilot: {
-    label: "GitHub Copilot",
-    color: "#a371f7",
-    driverKind: ProviderDriverKind.make("acpRegistry"),
-    acpRegistryAgentId: "github-copilot-cli",
-  },
-};
+} satisfies Record<UsageProviderKind, UsageProviderPresentation>;
 
 export const PROVIDER_ORDER = Object.keys(PROVIDER_PRESENTATION) as UsageProviderKind[];
 

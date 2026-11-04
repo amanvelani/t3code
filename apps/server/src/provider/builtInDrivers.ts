@@ -45,7 +45,6 @@ export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv
 ];
 
 export type BuiltInUsageReadersEnv =
-  | ProviderUsageReaderEnv<typeof AcpRegistryDriver>
   | ProviderUsageReaderEnv<typeof ClaudeDriver>
   | ProviderUsageReaderEnv<typeof CodexDriver>
   | ProviderUsageReaderEnv<typeof GrokDriver>
@@ -67,5 +66,4 @@ export const BUILT_IN_USAGE_DRIVERS: ReadonlyArray<
   MuseDriver,
   AntigravityDriver,
   CursorDriver,
-  AcpRegistryDriver,
 ];

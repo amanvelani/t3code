@@ -254,7 +254,6 @@ function UsageChartTooltip({
             <span className="flex items-center gap-1.5 text-muted-foreground">
               <ProviderInstanceIcon
                 driverKind={driverKind}
-                acpRegistryAgentId={PROVIDER_PRESENTATION[provider].acpRegistryAgentId}
                 displayName={providerLabel}
                 iconClassName="size-3"
               />

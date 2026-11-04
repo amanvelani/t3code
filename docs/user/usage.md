@@ -8,7 +8,7 @@ On mobile, choose **Usage** in the workspace navigation.
 
 ## Understand your usage
 
-**Usage** combines Codex, Claude Code, GitHub Copilot, Grok Build, OpenCode, Antigravity, Pi, Muse Code, and Cursor history
+**Usage** combines Codex, Claude Code, Grok Build, OpenCode, Antigravity, Pi, Muse Code, and Cursor history
 from your connected environments. It shows token use, cache savings, model breakdowns, and estimated API-equivalent
 cost, split by token type and by speed. These estimates are not your subscription bill.
 **Premium** is what Fast and Ultrafast requests cost above standard rates. Cost that cannot be
@@ -17,12 +17,6 @@ Select a model under **Breakdown** to see its trend, cache hit rate, and cost pe
 
 Totals depend on the history available on each server. Grok turns without a saved completed-turn
 record are missing from the totals.
-GitHub Copilot reads CLI session history from `~/.copilot/session-state`, including sessions run
-through ACP. Set `COPILOT_HOME` in the instance's environment variables to read a different home;
-an explicit `--config-dir` argument takes precedence. Current Copilot versions save per-call token
-usage, so refresh Usage to include completed calls from open sessions. Older versions save full
-totals only when a session closes; those tokens are counted on the day it closes. Costs use
-API-equivalent token prices, not the AI credits charged to your subscription.
 Text generation (thread titles, commit messages, PR text, branch names and review guides) is not in
 the totals for Codex or Claude Code 2.0.63 and newer, because those runs save no session history.
 
@@ -109,7 +103,7 @@ To count only some models, or to leave some out, add `usageModelFilter` to the s
 ```
 
 `include` keeps only the listed models and `exclude` leaves the listed models out. `provider` is
-one of `claude`, `codex`, `copilot`, `cursor`, `grok`, `opencode`, `antigravity`, `pi`, or `muse`; omit it
+one of `claude`, `codex`, `cursor`, `grok`, `opencode`, `antigravity`, `pi`, or `muse`; omit it
 to match a model ID from any provider. Use the model ID that Usage shows without **Map to**, such
 as a provider-prefixed ID for Pi. Filters apply before **Map to**, so a model you leave out is not
 counted under its mapped name. Usage applies each environment's own filter. Remove the setting to
@@ -175,10 +169,6 @@ Cursor endpoint, use an explicit token or file-based CLI login for limits.
 Grok reports the remaining subscription allowance and reset time for its current billing period
 after signing in with `grok login`. Explicit `XAI_API_KEY` connections and custom authentication
 or endpoint configurations do not report subscription limits.
-
-GitHub Copilot reports the current account's remaining monthly AI-credit allowance. Its CLI sign-in
-and instance environment settings apply. Refresh Limits to get a new reading without running an agent
-turn. The Cost and Tokens views use API-equivalent token prices independently of this allowance.
 
 API-key accounts may not report subscription limits. This also applies to Claude connections
 using a proxy through `ANTHROPIC_AUTH_TOKEN`.

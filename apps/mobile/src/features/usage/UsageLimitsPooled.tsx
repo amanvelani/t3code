@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
-import { EnvironmentId, officialAcpRegistryIconUrlForAgentId } from "@t3tools/contracts";
+import { EnvironmentId } from "@t3tools/contracts";
 import { normalizeProviderAccentColor } from "@t3tools/client-runtime/state/provider-instance-display";
 import {
   collectLimitAccounts,
@@ -34,7 +34,6 @@ const DRIVER_LABEL: Partial<Record<string, string>> = {
   claudeAgent: "Claude",
   grok: "Grok",
   antigravity: "Antigravity",
-  acpRegistry: "GitHub Copilot",
 };
 const PACE_LABEL = { ahead: "Ahead of pace", on: "On pace", under: "Under pace" } as const;
 
@@ -452,15 +451,7 @@ export function UsageLimitsSection({
             {index === cursorPromptAt ? cursorPrompt : null}
             <View className="gap-3">
               <View className="flex-row items-center gap-2 px-1">
-                <ProviderIcon
-                  provider={pool.driver}
-                  size={18}
-                  iconUrl={
-                    pool.driver === "acpRegistry"
-                      ? officialAcpRegistryIconUrlForAgentId("github-copilot-cli")
-                      : undefined
-                  }
-                />
+                <ProviderIcon provider={pool.driver} size={18} />
                 <Text className="text-base font-t3-medium text-foreground">
                   {DRIVER_LABEL[pool.driver] ?? pool.driver}
                 </Text>
