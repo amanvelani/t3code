@@ -36,7 +36,7 @@ jobs:
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "release_name=T3 Code v$version (Windows/macOS)" >> "$GITHUB_OUTPUT"
+          echo "release_name=T3 Code v$version (Windows)" >> "$GITHUB_OUTPUT"
 
   build_wsl_runtime:
     name: Build WSL runtime (linux-x64)
@@ -120,13 +120,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: macOS arm64
-            runner: macos-15
-            platform: mac
-            target: dmg
-            arch: arm64
-            rust_target: aarch64-apple-darwin
-            resource_key: darwin-arm64
+          # Temporarily Windows-only while GitHub's macOS ARM64 runners are unavailable.
           - label: Windows x64
             runner: windows-2025
             platform: win
@@ -268,7 +262,7 @@ jobs:
           merge-multiple: true
           path: release-assets
 
-      - name: Publish Windows/macOS release
+      - name: Publish Windows release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -288,9 +282,12 @@ jobs:
             release_args+=(--prerelease)
           fi
 
-          gh release create "${release_args[@]}" \
-            release-assets/*.dmg \
-            release-assets/*.zip \
-            release-assets/*.exe \
-            release-assets/*.blockmap \
+          shopt -s nullglob
+          release_assets=(
+            release-assets/*.dmg
+            release-assets/*.zip
+            release-assets/*.exe
+            release-assets/*.blockmap
             release-assets/*.yml
+          )
+          gh release create "${release_args[@]}" "${release_assets[@]}"
