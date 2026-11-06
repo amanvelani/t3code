@@ -357,7 +357,7 @@ export function buildCheckedAcpRegistrySnapshot(
         ? {
             status: "authenticated",
             label: "GitHub Copilot",
-            canLogout: true,
+            canLogout: false,
           }
         : {
             // Discovery sessions and an empty auth-method list do not prove sign-in.

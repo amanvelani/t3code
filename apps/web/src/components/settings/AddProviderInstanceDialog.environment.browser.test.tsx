@@ -1,4 +1,9 @@
-import { EnvironmentId, ProviderDriverKind, type AcpRegistrySearchAgent } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProviderDriverKind,
+  type AcpRegistrySearchAgent,
+  type ManagedPolicySummary,
+} from "@t3tools/contracts";
 import { userEvent } from "vite-plus/test/browser";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -8,6 +13,7 @@ const actions = vi.hoisted(() => ({
   toast: vi.fn(),
   onOpenChange: vi.fn(),
   canManageProviders: true,
+  managedPolicy: undefined as ManagedPolicySummary | undefined,
 }));
 const settingsHooks = vi.hoisted(() => ({
   read: vi.fn(() => ({ providerInstances: {} })),
@@ -27,6 +33,14 @@ const preparedAgent = vi.hoisted((): AcpRegistrySearchAgent => ({
   distribution: "binary",
   integrity: "sha256",
 }));
+
+vi.mock(import("../../state/managedPolicy"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    useManagedPolicy: () => actions.managedPolicy,
+  };
+});
 
 vi.mock(import("@t3tools/client-runtime/state/runtime"), async (original) => ({
   ...(await original()),
@@ -141,6 +155,7 @@ async function prepareCodexInstance() {
 
 function setup() {
   actions.canManageProviders = true;
+  actions.managedPolicy = undefined;
   actions.toast.mockReset();
   actions.onOpenChange.mockReset();
   settingsHooks.read.mockReset().mockReturnValue({ providerInstances: {} });
@@ -331,5 +346,35 @@ describe("AddProviderInstanceDialog environment routing", () => {
       },
     });
     expect(signInStep()?.textContent).toContain("remote-device/copilot");
+  });
+
+  it("filters out GitHub Copilot when acpRegistry is disallowed by managed policy", async () => {
+    setup();
+    actions.managedPolicy = {
+      organization: "Acme",
+      lockedSettings: [],
+      limits: {
+        providers: {
+          allowedDrivers: [ProviderDriverKind.make("codex")],
+        },
+      },
+    };
+    await using _screen = await render(dialog());
+    expect(radio("GitHub Copilot")).toBeUndefined();
+  });
+
+  it("permits GitHub Copilot when acpRegistry is allowed by managed policy", async () => {
+    setup();
+    actions.managedPolicy = {
+      organization: "Acme",
+      lockedSettings: [],
+      limits: {
+        providers: {
+          allowedDrivers: [ProviderDriverKind.make("acpRegistry")],
+        },
+      },
+    };
+    await using _screen = await render(dialog());
+    expect(radio("GitHub Copilot")).toBeDefined();
   });
 });

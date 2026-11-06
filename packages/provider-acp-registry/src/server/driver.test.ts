@@ -8,8 +8,8 @@ import * as Schema from "effect/Schema";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 
-import type { CopilotSdkClient } from "./copilotSdk.ts";
-import { probeAcpRegistryConfiguration } from "./probe.ts";
+import type { CopilotSdkInspectionClient } from "./copilotSdk.ts";
+import { logoutAcpRegistry, probeAcpRegistryConfiguration } from "./probe.ts";
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import {
   applyAcpRegistryAvailableCommands,
@@ -474,7 +474,7 @@ describe("acpRegistrySnapshotReadiness", () => {
           configOptions: [],
           sessionManagement: {
             ...noSessionManagement,
-            canLogout: true,
+            canLogout: false,
           },
         },
         slashCommands: [],
@@ -488,7 +488,7 @@ describe("acpRegistrySnapshotReadiness", () => {
       auth: {
         status: "authenticated",
         label: "GitHub Copilot",
-        canLogout: true,
+        canLogout: false,
       },
       models: [
         expect.objectContaining({ slug: "claude-sonnet-4.5", isDefault: true }),
@@ -545,7 +545,7 @@ describe("acpRegistrySnapshotReadiness", () => {
         stop: async () => {},
         getAuthStatus: async () => ({ isAuthenticated: false, statusMessage: "Not signed in" }),
         listModels: async () => [],
-      } as unknown as CopilotSdkClient;
+      } as unknown as CopilotSdkInspectionClient;
 
       const result = yield* probeAcpRegistryConfiguration(
         {
@@ -601,7 +601,7 @@ describe("acpRegistrySnapshotReadiness", () => {
           { id: "claude-sonnet-4.5", name: "Claude 3.5 Sonnet" },
           { id: "gpt-4o", name: "GPT-4o" },
         ],
-      } as unknown as CopilotSdkClient;
+      } as unknown as CopilotSdkInspectionClient;
 
       const result = yield* probeAcpRegistryConfiguration(
         {
@@ -640,6 +640,233 @@ describe("acpRegistrySnapshotReadiness", () => {
         ],
         currentModelId: "claude-sonnet-4.5",
       });
+    }),
+  );
+
+  it.effect(
+    "probes Copilot SDK and surfaces error when getAuthStatus throws (does not report unauthenticated)",
+    () =>
+      Effect.gen(function* () {
+        const settings = decodeSettings({ agentId: "github-copilot-cli", copilotSdk: true });
+        const mockClient = {
+          start: async () => {},
+          stop: async () => [],
+          getAuthStatus: async () => {
+            throw new Error("CLI process exited unexpectedly with code 1");
+          },
+          listModels: async () => [],
+        } as unknown as CopilotSdkInspectionClient;
+
+        const result = yield* probeAcpRegistryConfiguration(
+          {
+            instanceId: identity.instanceId,
+            settings,
+            cwd: "/workspace",
+            environment: {},
+          },
+          {
+            makeCopilotSdkClient: () => Promise.resolve(mockClient),
+          },
+        ).pipe(
+          Effect.provideService(
+            AcpRegistrySupport.AcpRegistryCatalog,
+            catalogWithInspection(
+              {
+                status: "ready",
+                agentId: "github-copilot-cli",
+                version: "1.0.0",
+                distribution: "binary",
+              },
+              {
+                distribution: "binary",
+                spawn: { command: "copilot", args: [] },
+              },
+            ),
+          ),
+          Effect.provide(mockProbeLayer),
+          Effect.flip,
+        );
+
+        expect(result.reason).toBe("probe_failed");
+        expect(result.message).toContain("Could not check GitHub Copilot authentication status");
+      }),
+  );
+
+  it.effect(
+    "probes Copilot SDK and surfaces error when listModels throws (does not fabricate Auto)",
+    () =>
+      Effect.gen(function* () {
+        const settings = decodeSettings({ agentId: "github-copilot-cli", copilotSdk: true });
+        const mockClient = {
+          start: async () => {},
+          stop: async () => [],
+          getAuthStatus: async () => ({ isAuthenticated: true }),
+          listModels: async () => {
+            throw new Error("Failed to list models");
+          },
+        } as unknown as CopilotSdkInspectionClient;
+
+        const result = yield* probeAcpRegistryConfiguration(
+          {
+            instanceId: identity.instanceId,
+            settings,
+            cwd: "/workspace",
+            environment: {},
+          },
+          {
+            makeCopilotSdkClient: () => Promise.resolve(mockClient),
+          },
+        ).pipe(
+          Effect.provideService(
+            AcpRegistrySupport.AcpRegistryCatalog,
+            catalogWithInspection(
+              {
+                status: "ready",
+                agentId: "github-copilot-cli",
+                version: "1.0.0",
+                distribution: "binary",
+              },
+              {
+                distribution: "binary",
+                spawn: { command: "copilot", args: [] },
+              },
+            ),
+          ),
+          Effect.provide(mockProbeLayer),
+          Effect.flip,
+        );
+
+        expect(result.reason).toBe("probe_failed");
+        expect(result.message).toContain("Could not retrieve GitHub Copilot models");
+      }),
+  );
+
+  it.effect(
+    "probes Copilot SDK and surfaces error when listModels returns empty (does not fabricate Auto)",
+    () =>
+      Effect.gen(function* () {
+        const settings = decodeSettings({ agentId: "github-copilot-cli", copilotSdk: true });
+        const mockClient = {
+          start: async () => {},
+          stop: async () => [],
+          getAuthStatus: async () => ({ isAuthenticated: true }),
+          listModels: async () => [],
+        } as unknown as CopilotSdkInspectionClient;
+
+        const result = yield* probeAcpRegistryConfiguration(
+          {
+            instanceId: identity.instanceId,
+            settings,
+            cwd: "/workspace",
+            environment: {},
+          },
+          {
+            makeCopilotSdkClient: () => Promise.resolve(mockClient),
+          },
+        ).pipe(
+          Effect.provideService(
+            AcpRegistrySupport.AcpRegistryCatalog,
+            catalogWithInspection(
+              {
+                status: "ready",
+                agentId: "github-copilot-cli",
+                version: "1.0.0",
+                distribution: "binary",
+              },
+              {
+                distribution: "binary",
+                spawn: { command: "copilot", args: [] },
+              },
+            ),
+          ),
+          Effect.provide(mockProbeLayer),
+          Effect.flip,
+        );
+
+        expect(result.reason).toBe("probe_failed");
+        expect(result.message).toContain("did not return any available models");
+      }),
+  );
+
+  it.effect("honors resolved.spawn.env when probing Copilot SDK", () =>
+    Effect.gen(function* () {
+      let passedEnv: NodeJS.ProcessEnv | undefined;
+      const settings = decodeSettings({ agentId: "github-copilot-cli", copilotSdk: true });
+      const mockClient = {
+        start: async () => {},
+        stop: async () => [],
+        getAuthStatus: async () => ({ isAuthenticated: true }),
+        listModels: async () => [{ id: "m1", name: "Model 1" }],
+      } as unknown as CopilotSdkInspectionClient;
+
+      yield* probeAcpRegistryConfiguration(
+        {
+          instanceId: identity.instanceId,
+          settings,
+          cwd: "/workspace",
+          environment: { BASE_ENV: "base" },
+        },
+        {
+          makeCopilotSdkClient: (options) => {
+            passedEnv = options.env;
+            return Promise.resolve(mockClient);
+          },
+        },
+      ).pipe(
+        Effect.provideService(
+          AcpRegistrySupport.AcpRegistryCatalog,
+          catalogWithInspection(
+            {
+              status: "ready",
+              agentId: "github-copilot-cli",
+              version: "1.0.0",
+              distribution: "binary",
+            },
+            {
+              distribution: "binary",
+              spawn: {
+                command: "copilot",
+                args: [],
+                env: { COPILOT_HOME: "/custom/copilot", SPAWN_ENV: "spawn" },
+              },
+            },
+          ),
+        ),
+        Effect.provide(mockProbeLayer),
+      );
+
+      expect(passedEnv).toMatchObject({
+        BASE_ENV: "base",
+        COPILOT_HOME: "/custom/copilot",
+        SPAWN_ENV: "spawn",
+        ELECTRON_RUN_AS_NODE: "1",
+      });
+    }),
+  );
+
+  it.effect("logoutAcpRegistry fails cleanly with unsupported for Copilot SDK", () =>
+    Effect.gen(function* () {
+      const settings = decodeSettings({ agentId: "github-copilot-cli", copilotSdk: true });
+      const result = yield* logoutAcpRegistry({
+        instanceId: identity.instanceId,
+        settings,
+        cwd: "/workspace",
+        environment: {},
+      }).pipe(
+        Effect.provideService(
+          AcpRegistrySupport.AcpRegistryCatalog,
+          catalogWithInspection({
+            status: "ready",
+            agentId: "github-copilot-cli",
+            version: "1.0.0",
+            distribution: "binary",
+          }),
+        ),
+        Effect.provide(mockProbeLayer),
+        Effect.flip,
+      );
+
+      expect(result.reason).toBe("logout_unsupported");
     }),
   );
 });

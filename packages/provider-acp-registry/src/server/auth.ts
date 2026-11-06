@@ -7,8 +7,10 @@ import { AcpRegistrySettings, isCopilotAcpSettings } from "../settings.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -16,7 +18,12 @@ import * as Scope from "effect/Scope";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as AcpSchema from "effect-acp/compat";
 
-import { copilotSdkCliCandidates, makeCopilotSdkClient } from "./copilotSdk.ts";
+import {
+  makeCopilotSdkClient,
+  resolveCopilotCliPath,
+  scopedCopilotInspectionClient,
+  type MakeCopilotSdkInspectionClient,
+} from "./copilotSdk.ts";
 
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 import * as ProviderAuthFlow from "@t3tools/provider-core/server/providerAuthFlow";
@@ -36,6 +43,7 @@ export const makeAcpRegistryAuth = Effect.fn("makeAcpRegistryAuth")(function* (o
   readonly cwd: string;
   readonly environment: NodeJS.ProcessEnv;
   readonly onChanged: (authenticated: boolean) => Effect.Effect<void>;
+  readonly makeCopilotSdkClient?: MakeCopilotSdkInspectionClient;
   readonly makeRuntime?: (
     spawn: AcpSessionRuntime.AcpSpawnInput,
   ) => Effect.Effect<Runtime, ProviderSetupError, Scope.Scope>;
@@ -251,6 +259,108 @@ export const makeAcpRegistryAuth = Effect.fn("makeAcpRegistryAuth")(function* (o
     const login = Effect.scoped(
       Effect.gen(function* () {
         const resolved = yield* resolve;
+
+        if (isCopilotAcpSettings(options.settings) && options.settings.copilotSdk) {
+          if (methodId !== "copilot-login") {
+            return yield* failure("start", "The agent no longer advertises this sign-in method.");
+          }
+
+          yield* runTerminal(
+            resolved,
+            {
+              id: "copilot-login",
+              name: "GitHub Copilot sign in",
+              type: "terminal",
+              args: ["login"],
+            },
+            context,
+          ).pipe(Effect.scoped);
+
+          yield* context.verifying;
+
+          const platform = yield* HostProcess.Platform;
+          const architecture = yield* HostProcess.Architecture;
+          const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem);
+          const spawner = yield* Effect.serviceOption(ChildProcessSpawner.ChildProcessSpawner);
+
+          const effectiveEnvironment = {
+            ...options.environment,
+            ...resolved.spawn.env,
+            ELECTRON_RUN_AS_NODE: "1",
+          };
+
+          const cliPath = yield* resolveCopilotCliPath({
+            command: resolved.spawn.command,
+            environment: effectiveEnvironment,
+            platform,
+            architecture,
+            fileSystem: Option.getOrUndefined(fileSystem),
+          }).pipe(
+            Effect.mapError((err) =>
+              failure("verify", `Could not find Copilot executable: ${err.message}`),
+            ),
+          );
+
+          const makeClient = options.makeCopilotSdkClient ?? makeCopilotSdkClient;
+
+          return yield* Effect.scoped(
+            Effect.gen(function* () {
+              const client = yield* scopedCopilotInspectionClient(
+                () =>
+                  makeClient({
+                    cliPath,
+                    cwd: options.cwd,
+                    env: effectiveEnvironment,
+                  }),
+                {
+                  platform,
+                  spawner: Option.getOrUndefined(spawner),
+                  timeout: Duration.seconds(2),
+                },
+              ).pipe(
+                Effect.mapError((err) =>
+                  failure("verify", "Could not start Copilot SDK client after sign-in.", err),
+                ),
+              );
+
+              yield* Effect.tryPromise({
+                try: () => client.start(),
+                catch: (cause) =>
+                  failure("verify", "Could not connect to Copilot CLI after sign-in.", cause),
+              }).pipe(
+                Effect.timeoutOrElse({
+                  duration: Duration.seconds(10),
+                  orElse: () =>
+                    Effect.fail(
+                      failure("verify", "Connecting to Copilot CLI after sign-in timed out."),
+                    ),
+                }),
+              );
+
+              const auth = yield* Effect.tryPromise({
+                try: () => client.getAuthStatus(),
+                catch: (cause) =>
+                  failure("verify", "Could not check Copilot auth status after sign-in.", cause),
+              }).pipe(
+                Effect.timeoutOrElse({
+                  duration: Duration.seconds(5),
+                  orElse: () =>
+                    Effect.fail(
+                      failure("verify", "Checking Copilot auth status after sign-in timed out."),
+                    ),
+                }),
+              );
+
+              if (!auth.isAuthenticated) {
+                return yield* failure(
+                  "verify",
+                  "GitHub Copilot is not authenticated after sign-in.",
+                );
+              }
+            }),
+          );
+        }
+
         const runtimeScope = yield* Scope.make();
         yield* Effect.addFinalizer(() => Scope.close(runtimeScope, Exit.void));
         const runtime = yield* makeRuntime(resolved.spawn).pipe(
@@ -289,108 +399,49 @@ export const makeAcpRegistryAuth = Effect.fn("makeAcpRegistryAuth")(function* (o
               failure("start", "Could not initialize the selected ACP agent.", cause),
             ),
           );
-        if (isCopilotAcpSettings(options.settings) && options.settings.copilotSdk) {
+        const method = initialized.authMethods?.find((method) => method.id === methodId);
+        if (!method)
+          return yield* failure("start", "The agent no longer advertises this sign-in method.");
+        if (method.type === "terminal") {
           yield* Scope.close(runtimeScope, Exit.void);
-          yield* runTerminal(
-            resolved,
-            {
-              id: "copilot-login",
-              name: "GitHub Copilot sign in",
-              type: "terminal",
-              args: ["login"],
-            },
-            context,
-          ).pipe(Effect.scoped);
+          yield* runTerminal(resolved, method, context).pipe(Effect.scoped);
+          // Terminal login is a separate invocation. Reconnect after it exits so
+          // the ACP process reads the credentials its login command persisted.
+          const verifiedRuntime = yield* makeRuntime(resolved.spawn);
           yield* context.verifying;
-          const platform = yield* HostProcess.Platform;
-          const architecture = yield* HostProcess.Architecture;
-          const candidates = copilotSdkCliCandidates({
-            command: resolved.spawn.command,
-            platform,
-            architecture,
-          });
-          const cliPath = candidates[0] ?? resolved.spawn.command;
-          const client = yield* Effect.tryPromise({
-            try: () =>
-              makeCopilotSdkClient({
-                cliPath,
-                cwd: options.cwd,
-                env: { ...options.environment, ELECTRON_RUN_AS_NODE: "1" },
-              }),
-            catch: (cause) =>
-              failure("verify", "Could not start Copilot SDK client after sign-in.", cause),
-          });
-          yield* Effect.tryPromise({
-            try: () => client.start(),
-            catch: (cause) =>
-              failure("verify", "Could not connect to Copilot CLI after sign-in.", cause),
-          });
-          const auth = yield* Effect.tryPromise({
-            try: () =>
-              typeof client.getAuthStatus === "function"
-                ? client.getAuthStatus()
-                : Promise.resolve({ isAuthenticated: true }),
-            catch: (cause) =>
-              failure("verify", "Could not check Copilot auth status after sign-in.", cause),
-          });
-          if (typeof client.stop === "function") {
-            yield* Effect.tryPromise(() => client.stop()).pipe(Effect.ignore({ log: true }));
-          }
-          if (!auth.isAuthenticated) {
-            return yield* failure("verify", "GitHub Copilot is not authenticated after sign-in.");
-          }
+          yield* verifiedRuntime
+            .start()
+            .pipe(
+              Effect.mapError((cause) =>
+                failure(
+                  "verify",
+                  "The provider could not create a session after terminal sign-in.",
+                  cause,
+                ),
+              ),
+            );
         } else {
-          const method = initialized.authMethods?.find((method) => method.id === methodId);
-          if (!method)
-            return yield* failure("start", "The agent no longer advertises this sign-in method.");
-          if (method.type === "terminal") {
-            yield* Scope.close(runtimeScope, Exit.void);
-            yield* runTerminal(resolved, method, context).pipe(Effect.scoped);
-            // Terminal login is a separate invocation. Reconnect after it exits so
-            // the ACP process reads the credentials its login command persisted.
-            const verifiedRuntime = yield* makeRuntime(resolved.spawn);
-            yield* context.verifying;
-            yield* verifiedRuntime
-              .start()
-              .pipe(
-                Effect.mapError((cause) =>
-                  failure(
-                    "verify",
-                    "The provider could not create a session after terminal sign-in.",
-                    cause,
-                  ),
-                ),
-              );
-          } else {
-            if (method.type === undefined || method.type === "agent") {
-              if (!runtime.authenticate)
-                return yield* failure(
-                  "start",
-                  "This runtime does not support explicit ACP sign-in.",
-                );
-              yield* runtime
-                .authenticate(methodId)
-                .pipe(
-                  Effect.mapError((cause) =>
-                    failure("start", "The ACP agent could not complete sign-in.", cause),
-                  ),
-                );
-            }
-            // Legacy env_var methods use the secret-backed environment fields in
-            // provider settings. Never send their ID to authenticate.
-            yield* context.verifying;
+          if (method.type === undefined || method.type === "agent") {
+            if (!runtime.authenticate)
+              return yield* failure("start", "This runtime does not support explicit ACP sign-in.");
             yield* runtime
-              .start()
+              .authenticate(methodId)
               .pipe(
                 Effect.mapError((cause) =>
-                  failure(
-                    "verify",
-                    "The provider could not create a session after sign-in.",
-                    cause,
-                  ),
+                  failure("start", "The ACP agent could not complete sign-in.", cause),
                 ),
               );
           }
+          // Legacy env_var methods use the secret-backed environment fields in
+          // provider settings. Never send their ID to authenticate.
+          yield* context.verifying;
+          yield* runtime
+            .start()
+            .pipe(
+              Effect.mapError((cause) =>
+                failure("verify", "The provider could not create a session after sign-in.", cause),
+              ),
+            );
         }
       }),
     );
@@ -401,6 +452,12 @@ export const makeAcpRegistryAuth = Effect.fn("makeAcpRegistryAuth")(function* (o
   });
   const logout = Effect.scoped(
     Effect.gen(function* () {
+      if (isCopilotAcpSettings(options.settings) && options.settings.copilotSdk) {
+        return yield* failure(
+          "logout",
+          "GitHub Copilot does not support sign-out through the CLI or SDK.",
+        );
+      }
       const resolved = yield* resolve;
       const runtime = yield* makeRuntime(resolved.spawn);
       yield* runtime.logout.pipe(

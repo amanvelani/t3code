@@ -162,8 +162,7 @@ export function AddProviderInstanceDialog({
   const managedPolicy = useManagedPolicy(environmentId);
   const isDriverOptionAllowed = (driverKind: ProviderDriverKind) =>
     driverKind === COPILOT_DRIVER_KIND
-      ? isManagedDriverAllowed(managedPolicy, ACP_REGISTRY_DRIVER_KIND) ||
-        isManagedDriverAllowed(managedPolicy, driverKind)
+      ? isManagedDriverAllowed(managedPolicy, ACP_REGISTRY_DRIVER_KIND)
       : isManagedDriverAllowed(managedPolicy, driverKind);
   const featuredDriverOptions = FEATURED_DRIVER_OPTIONS.filter((option) =>
     isDriverOptionAllowed(option.driverKind),

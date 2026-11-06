@@ -22,11 +22,13 @@ import {
   RunAttemptId,
   RunId,
   ThreadId,
+  AcpRegistryOperationError,
   type ModelSelection,
   type OrchestrationV2ProviderThread,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Predicate from "effect/Predicate";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -50,11 +52,14 @@ import {
   copilotClientProcess,
   copilotSdkCliCandidates,
   descendantPids,
-  type ProcessIdentity,
+  resolveCopilotCliPath,
+  scopedCopilotInspectionClient,
   stopProcessTree,
   type CopilotSdkClient,
   type CopilotSdkClientOptions,
+  type CopilotSdkInspectionClient,
   type CopilotSdkSession,
+  type ProcessIdentity,
 } from "./copilotSdk.ts";
 import { makeCopilotSdkAdapterV2 } from "./copilotSdkAdapter.ts";
 
@@ -600,6 +605,204 @@ describe("CopilotSdkAdapterV2", () => {
       [winget],
     );
   });
+
+  it.effect(
+    "resolves Copilot CLI path using override, candidate probing, and supported executables",
+    () =>
+      Effect.gen(function* () {
+        const shim = "C:\\Users\\radu\\AppData\\Roaming\\npm\\copilot.cmd";
+        const hoisted =
+          "C:\\Users\\radu\\AppData\\Roaming\\npm\\node_modules\\@github\\copilot-win32-x64\\copilot.exe";
+        const loader =
+          "C:\\Users\\radu\\AppData\\Roaming\\npm\\node_modules\\@github\\copilot\\npm-loader.js";
+
+        const makeFakeFs = (existing: Set<string>): FileSystem.FileSystem =>
+          ({
+            exists: (path: string) => Effect.succeed(existing.has(path)),
+          }) as unknown as FileSystem.FileSystem;
+
+        // 1. Override in environment wins immediately
+        const overridden = yield* resolveCopilotCliPath({
+          command: shim,
+          environment: { COPILOT_CLI_PATH: "C:\\custom\\copilot.exe" },
+          platform: "win32",
+          architecture: "x64",
+          fileSystem: makeFakeFs(new Set()),
+        });
+        assert.strictEqual(overridden, "C:\\custom\\copilot.exe");
+
+        // 2. Absent first candidate falls back to hoisted binary
+        const resolvedHoisted = yield* resolveCopilotCliPath({
+          command: shim,
+          environment: {},
+          platform: "win32",
+          architecture: "x64",
+          fileSystem: makeFakeFs(new Set([hoisted])),
+        });
+        assert.strictEqual(resolvedHoisted, hoisted);
+
+        // 3. Absent first two candidates falls back to npm-loader.js
+        const resolvedLoader = yield* resolveCopilotCliPath({
+          command: shim,
+          environment: {},
+          platform: "win32",
+          architecture: "x64",
+          fileSystem: makeFakeFs(new Set([loader])),
+        });
+        assert.strictEqual(resolvedLoader, loader);
+
+        // 4. All candidates missing fails with runner_unavailable
+        const failed = yield* resolveCopilotCliPath({
+          command: shim,
+          environment: {},
+          platform: "win32",
+          architecture: "x64",
+          fileSystem: makeFakeFs(new Set()),
+        }).pipe(Effect.flip);
+        assert.strictEqual(failed.reason, "runner_unavailable");
+
+        // 5. Paths with spaces without shell expansion
+        const spaceShim = "C:\\Program Files\\npm\\copilot.cmd";
+        const spaceHoisted =
+          "C:\\Program Files\\npm\\node_modules\\@github\\copilot-win32-x64\\copilot.exe";
+        const resolvedSpace = yield* resolveCopilotCliPath({
+          command: spaceShim,
+          environment: {},
+          platform: "win32",
+          architecture: "x64",
+          fileSystem: makeFakeFs(new Set([spaceHoisted])),
+        });
+        assert.strictEqual(resolvedSpace, spaceHoisted);
+
+        // 6. Direct executable on Windows (.exe) returns command directly
+        const exeWinget = "C:\\Program Files\\GitHub Copilot\\copilot.exe";
+        const resolvedExe = yield* resolveCopilotCliPath({
+          command: exeWinget,
+          environment: {},
+          platform: "win32",
+          architecture: "x64",
+          fileSystem: makeFakeFs(new Set()),
+        });
+        assert.strictEqual(resolvedExe, exeWinget);
+
+        // 7. Non-Windows platform returns command directly
+        const macBin = "/usr/local/bin/copilot";
+        const resolvedMac = yield* resolveCopilotCliPath({
+          command: macBin,
+          environment: {},
+          platform: "darwin",
+          architecture: "arm64",
+        });
+        assert.strictEqual(resolvedMac, macBin);
+      }),
+  );
+
+  it.effect(
+    "scopedCopilotInspectionClient runs finalizer on success, error, and cancellation",
+    () =>
+      Effect.gen(function* () {
+        const calls: string[] = [];
+        const fakeInspectionClient: CopilotSdkInspectionClient = {
+          start: async () => {
+            calls.push("start");
+          },
+          stop: async () => {
+            calls.push("stop");
+            return [];
+          },
+          forceStop: async () => {
+            calls.push("forceStop");
+          },
+          getAuthStatus: async () => ({ isAuthenticated: true }),
+          listModels: async () => [{ id: "m1", name: "Model 1" }],
+        };
+
+        // 1. Normal scope execution runs finalizer upon exit
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const client = yield* scopedCopilotInspectionClient(() =>
+              Promise.resolve(fakeInspectionClient),
+            );
+            yield* Effect.tryPromise({
+              try: () => client.start(),
+              catch: (cause) =>
+                new AcpRegistryOperationError({
+                  reason: "runner_unavailable",
+                  message: String(cause),
+                }),
+            });
+          }),
+        );
+        assert.deepStrictEqual(calls, ["start", "stop"]);
+
+        // 2. Error during start still runs finalizer
+        calls.length = 0;
+        const failingClient: CopilotSdkInspectionClient = {
+          ...fakeInspectionClient,
+          start: async () => {
+            calls.push("start");
+            throw new Error("connection failed");
+          },
+        };
+        const errorResult = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const client = yield* scopedCopilotInspectionClient(() =>
+              Promise.resolve(failingClient),
+            );
+            yield* Effect.tryPromise({
+              try: () => client.start(),
+              catch: (cause) =>
+                new AcpRegistryOperationError({
+                  reason: "runner_unavailable",
+                  message: String(cause),
+                }),
+            });
+          }),
+        ).pipe(Effect.flip);
+        assert.isDefined(errorResult);
+        assert.deepStrictEqual(calls, ["start", "stop"]);
+
+        // 3. Interrupted fiber still runs finalizer
+        calls.length = 0;
+        let notifyStarted!: () => void;
+        const startedPromise = new Promise<void>((resolve) => {
+          notifyStarted = resolve;
+        });
+        const hangingClient: CopilotSdkInspectionClient = {
+          ...fakeInspectionClient,
+          start: async () => {
+            calls.push("start");
+            notifyStarted();
+            await new Promise(() => {}); // never resolves
+          },
+        };
+        const fiber = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const client = yield* scopedCopilotInspectionClient(() =>
+              Promise.resolve(hangingClient),
+            );
+            yield* Effect.tryPromise({
+              try: () => client.start(),
+              catch: (cause) =>
+                new AcpRegistryOperationError({
+                  reason: "runner_unavailable",
+                  message: String(cause),
+                }),
+            });
+          }),
+        ).pipe(Effect.forkChild);
+        yield* Effect.tryPromise({
+          try: () => startedPromise,
+          catch: (cause) =>
+            new AcpRegistryOperationError({
+              reason: "runner_unavailable",
+              message: String(cause),
+            }),
+        });
+        yield* Fiber.interrupt(fiber);
+        assert.deepStrictEqual(calls, ["start", "stop"]);
+      }),
+  );
 
   it.effect("projects messages, reasoning and tools from root events only", () =>
     Effect.gen(function* () {

@@ -3,6 +3,14 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
+import type * as Scope from "effect/Scope";
+import * as ChildProcess from "effect/process/ChildProcess";
+import type * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import { AcpRegistryOperationError } from "@t3tools/contracts";
 import type {
   CopilotSession,
   MessageOptions,
@@ -65,6 +73,36 @@ export interface CopilotSdkClient {
    */
   readonly process: CopilotProcess | undefined;
 }
+
+export interface CopilotSdkInspectionClient {
+  readonly start: () => Promise<void>;
+  readonly stop?: () => Promise<ReadonlyArray<Error>>;
+  readonly forceStop?: () => Promise<void>;
+  readonly getAuthStatus: () => Promise<{
+    readonly isAuthenticated: boolean;
+    readonly authType?: string;
+    readonly host?: string;
+    readonly login?: string;
+    readonly statusMessage?: string;
+  }>;
+  readonly getStatus?: () => Promise<{
+    readonly version: string;
+    readonly protocolVersion: number;
+  }>;
+  readonly listModels: () => Promise<
+    ReadonlyArray<{
+      readonly id: string;
+      readonly name: string;
+      readonly capabilities?: unknown;
+      readonly supportedReasoningEfforts?: ReadonlyArray<string>;
+    }>
+  >;
+  readonly process?: CopilotProcess | undefined;
+}
+
+export type MakeCopilotSdkInspectionClient = (
+  options: CopilotSdkClientOptions,
+) => Promise<CopilotSdkInspectionClient>;
 
 export interface CopilotProcess {
   readonly id: number;
@@ -302,7 +340,9 @@ export type MakeCopilotSdkClient = (options: CopilotSdkClientOptions) => Promise
 const requireCopilotSdk = NodeModule.createRequire(import.meta.url);
 
 // Loaded on first use so ACP sessions never evaluate the SDK.
-export const makeCopilotSdkClient: MakeCopilotSdkClient = async (options) => {
+export const makeCopilotSdkClient: MakeCopilotSdkClient & MakeCopilotSdkInspectionClient = async (
+  options,
+) => {
   const { CopilotClient, RuntimeConnection } = requireCopilotSdk(
     "@github/copilot-sdk",
   ) as typeof import("@github/copilot-sdk");
@@ -356,3 +396,148 @@ export function copilotSdkCliCandidates(input: {
     path.join(scope, "copilot", "npm-loader.js"),
   ];
 }
+
+/**
+ * Shared CLI-path resolver across auth, probe, and adapter.
+ * Honors COPILOT_CLI_PATH override, probes Windows shim candidates in order against the filesystem,
+ * and handles paths with spaces without shell expansion.
+ */
+export const resolveCopilotCliPath = Effect.fn("resolveCopilotCliPath")(function* (input: {
+  readonly command: string;
+  readonly environment: NodeJS.ProcessEnv;
+  readonly platform: NodeJS.Platform;
+  readonly architecture: NodeJS.Architecture;
+  readonly fileSystem?: FileSystem.FileSystem | undefined;
+}): Effect.fn.Return<string, AcpRegistryOperationError> {
+  const override = input.environment.COPILOT_CLI_PATH?.trim();
+  if (override && override.length > 0) return override;
+
+  const candidates = copilotSdkCliCandidates({
+    command: input.command,
+    platform: input.platform,
+    architecture: input.architecture,
+  });
+
+  if (candidates.length === 1) return candidates[0]!;
+
+  const fs =
+    input.fileSystem ??
+    (yield* Effect.serviceOption(FileSystem.FileSystem).pipe(Effect.map(Option.getOrUndefined)));
+
+  if (fs !== undefined) {
+    for (const candidate of candidates) {
+      const exists = yield* fs.exists(candidate).pipe(Effect.orElseSucceed(() => false));
+      if (exists) return candidate;
+    }
+    return yield* new AcpRegistryOperationError({
+      reason: "runner_unavailable",
+      message: "Could not find the Copilot executable behind its npm shim; set COPILOT_CLI_PATH",
+    });
+  }
+
+  return candidates[0]!;
+});
+
+/**
+ * Stops or terminates a Copilot SDK client with bounded timeouts and cleans up its process tree.
+ */
+const terminateCopilotSdkClient = Effect.fn("CopilotSdk.terminateClient")(function* (
+  client: {
+    readonly stop?: () => Promise<ReadonlyArray<Error>>;
+    readonly forceStop?: () => Promise<void>;
+    readonly process?: CopilotProcess | undefined;
+  },
+  options?: {
+    readonly platform?: NodeJS.Platform | undefined;
+    readonly spawner?: ChildProcessSpawner.ChildProcessSpawner["Service"] | undefined;
+    readonly timeout?: Duration.Duration | undefined;
+  },
+) {
+  const platform = options?.platform ?? "darwin";
+  const spawner = options?.spawner;
+  const timeout = options?.timeout ?? Duration.seconds(2);
+  const live =
+    client.process !== undefined && !client.process.hasExited() ? client.process : undefined;
+
+  let treeFailure: string | undefined;
+  if (live !== undefined) {
+    if (platform === "win32" && spawner !== undefined) {
+      const exitCode = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const taskkill = yield* spawner.spawn(
+            ChildProcess.make("taskkill", ["/PID", String(live.id), "/T", "/F"]),
+          );
+          return Number(yield* taskkill.exitCode);
+        }),
+      ).pipe(
+        Effect.timeoutOption(timeout),
+        Effect.orElseSucceed(() => Option.none<number>()),
+      );
+      treeFailure = Option.isNone(exitCode)
+        ? "taskkill did not finish"
+        : exitCode.value === 0
+          ? undefined
+          : `taskkill exited ${exitCode.value}`;
+    } else {
+      treeFailure = yield* Effect.tryPromise({
+        try: () => live.killDescendants(),
+        catch: () => undefined,
+      }).pipe(
+        Effect.timeoutOption(timeout),
+        Effect.map((killed) =>
+          Option.isSome(killed) ? killed.value : "stopping Copilot's processes did not finish",
+        ),
+        Effect.orElseSucceed(() => "stopping Copilot's processes failed"),
+      );
+    }
+  }
+
+  let stoppedGracefully = false;
+  if (typeof client.stop === "function") {
+    stoppedGracefully = yield* Effect.tryPromise({
+      try: () => client.stop!(),
+      catch: () => [],
+    }).pipe(
+      Effect.timeoutOption(timeout),
+      Effect.map(Option.isSome),
+      Effect.orElseSucceed(() => false),
+    );
+  }
+
+  if (!stoppedGracefully && typeof client.forceStop === "function") {
+    yield* Effect.tryPromise({
+      try: () => client.forceStop!(),
+      catch: () => undefined,
+    }).pipe(Effect.timeoutOption(timeout), Effect.ignore({ log: false }));
+  }
+
+  if (client.process !== undefined && !client.process.hasExited()) {
+    client.process.kill();
+  }
+
+  return treeFailure;
+});
+
+/**
+ * Acquires a Copilot inspection client with an acquire/release finalizer attached BEFORE handshake.
+ */
+export const scopedCopilotInspectionClient = (
+  makeClient: () => Promise<CopilotSdkInspectionClient>,
+  options?: {
+    readonly platform?: NodeJS.Platform | undefined;
+    readonly spawner?: ChildProcessSpawner.ChildProcessSpawner["Service"] | undefined;
+    readonly timeout?: Duration.Duration | undefined;
+  },
+): Effect.Effect<CopilotSdkInspectionClient, AcpRegistryOperationError, Scope.Scope> =>
+  Effect.acquireRelease(
+    Effect.tryPromise({
+      try: makeClient,
+      catch: (cause) =>
+        new AcpRegistryOperationError({
+          reason: "runner_unavailable",
+          message: "Could not launch the Copilot SDK client.",
+          cause,
+        }),
+    }),
+    (client) => terminateCopilotSdkClient(client, options).pipe(Effect.asVoid),
+  );

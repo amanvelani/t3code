@@ -80,8 +80,8 @@ import {
 import type { AcpRegistrySettings } from "../settings.ts";
 import type * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import {
-  copilotSdkCliCandidates,
   makeCopilotSdkClient,
+  resolveCopilotCliPath,
   type CopilotSdkClient,
   type CopilotSdkSession,
   type MakeCopilotSdkClient,
@@ -604,20 +604,14 @@ export const makeCopilotSdkAdapterV2 = Effect.fn("makeCopilotSdkAdapterV2")(func
       ...(cause === undefined ? {} : { cause }),
     });
 
-  const resolveCliPath = Effect.fnUntraced(function* (spawn: AcpSpawnInput) {
-    const override = options.environment.COPILOT_CLI_PATH?.trim();
-    if (override) return override;
-    const candidates = copilotSdkCliCandidates({ command: spawn.command, platform, architecture });
-    if (candidates.length === 1) return candidates[0]!;
-    for (const candidate of candidates) {
-      if (yield* fileSystem.exists(candidate).pipe(Effect.orElseSucceed(() => false))) {
-        return candidate;
-      }
-    }
-    return yield* protocolError(
-      "Could not find the Copilot executable behind its npm shim; set COPILOT_CLI_PATH",
-    );
-  });
+  const resolveCliPath = (spawn: AcpSpawnInput) =>
+    resolveCopilotCliPath({
+      command: spawn.command,
+      environment: { ...options.environment, ...spawn.env },
+      platform,
+      architecture,
+      fileSystem,
+    }).pipe(Effect.mapError((err) => protocolError(err.message)));
 
   return ProviderAdapter.ProviderAdapterV2.of({
     instanceId: options.instanceId,
