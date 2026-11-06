@@ -698,6 +698,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           "node_modules/@github/copilot-sdk-win32-x64/prebuilds/copilot-runtime.exe",
           "node_modules/@github/copilot-sdk-win32-x64/prebuilds/runtime.node",
           "node_modules/@github/copilot-sdk/dist/cjs/index.js",
+          "node_modules/@yuuang/ffi-rs-win32-ia32-msvc/ffi-rs.win32-ia32-msvc.node",
+          "node_modules/@yuuang/ffi-rs-win32-x64-msvc/ffi-rs.win32-x64-msvc.node",
         ];
 
         for (const nativeFile of nativeFiles) {
@@ -739,6 +741,26 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         assert.isFalse(
           yield* fs.exists(path.join(unpackedRoot, "node_modules/@github/copilot-sdk-win32-x64")),
         );
+        assert.isFalse(
+          yield* fs.exists(path.join(unpackedRoot, "node_modules/@yuuang/ffi-rs-win32-ia32-msvc")),
+        );
+        assert.isTrue(
+          yield* fs.exists(
+            path.join(
+              unpackedRoot,
+              "node_modules/@yuuang/ffi-rs-win32-x64-msvc/ffi-rs.win32-x64-msvc.node",
+            ),
+          ),
+        );
+        for (const duplicate of [
+          "apps/desktop/resources/resource-monitor/t3-resource-monitor.exe",
+          "apps/desktop/prod-resources/resource-monitor/t3-resource-monitor.exe",
+          "node_modules/@yuuang/ffi-rs-win32-ia32-msvc/ffi-rs.win32-ia32-msvc.node",
+        ]) {
+          assert.isTrue(
+            DESKTOP_FILE_EXCLUSIONS.some((glob) => NodePath.matchesGlob(duplicate, glob.slice(1))),
+          );
+        }
         assert.isNotEmpty(
           extractFile(
             asarPath,
