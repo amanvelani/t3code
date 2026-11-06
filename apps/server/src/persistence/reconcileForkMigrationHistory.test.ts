@@ -45,6 +45,7 @@ it.effect("upgrades the released fork ledger to V2 without skipping schema chang
       [79, "RepairBooleanSettledOverride"],
       [80, "DropOrchestrationEventCorrelationIndex"],
       [81, "DelegatedRecoveryIndexes"],
+      [82, "ScheduledTaskThreadMode"],
     ]);
     const rows = yield* sql<{
       migration_id: number;

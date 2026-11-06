@@ -8,14 +8,16 @@ import * as SqlClient from "effect/sql/SqlClient";
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
-  yield* sql`
-    UPDATE auth_sessions
-    SET
-      client_ip_address = NULL,
-      client_user_agent = NULL,
-      client_os = NULL,
-      client_browser = NULL,
-      client_surface = NULL,
-      client_app_version = NULL
-  `;
+  // Some V1 installs used migration 41 for local schema instead of connection metadata.
+  const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(auth_sessions)`;
+  yield* sql`UPDATE auth_sessions SET ${sql.update({
+    client_ip_address: null,
+    client_user_agent: null,
+    client_os: null,
+    client_browser: null,
+    ...(columns.some((column) => column.name === "client_surface") ? { client_surface: null } : {}),
+    ...(columns.some((column) => column.name === "client_app_version")
+      ? { client_app_version: null }
+      : {}),
+  })}`;
 });

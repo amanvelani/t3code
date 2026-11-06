@@ -7,7 +7,7 @@ import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime"
 import { useAtomValue } from "@effect/atom-react";
 import { useState } from "react";
 
-import { createServerPairingCredential } from "~/environments/primary";
+import { authEnvironment } from "~/state/auth";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { setPairingTokenOnUrl } from "@t3tools/shared/remote";
 import { useEnvironmentQuery } from "~/state/query";
@@ -39,6 +39,9 @@ export function DevTunnelSettings({
   const setEnabled = useAtomCommand(serverEnvironment.setDevTunnelEnabled, {
     reportFailure: false,
   });
+  const createPairingCredential = useAtomCommand(authEnvironment.createPairingCredential, {
+    reportFailure: false,
+  });
   const canEdit = useAtomValue(serverEnvironment.setDevTunnelEnabled.permissionAtom(environmentId));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,15 +65,24 @@ export function DevTunnelSettings({
     setBusy(true);
     setError(null);
     try {
-      const issued = await createServerPairingCredential({
-        label: "Dev Tunnels",
-        reusable: true,
-        scopes: AuthStandardClientScopes,
+      const result = await createPairingCredential({
+        environmentId,
+        input: {
+          label: "Dev Tunnels",
+          reusable: true,
+          scopes: AuthStandardClientScopes,
+        },
       });
-      onPairingLinkCreated(issued);
-      setPairingUrl(
-        setPairingTokenOnUrl(new URL("/pair", state.url), issued.credential).toString(),
-      );
+      if (result._tag === "Failure") {
+        const failure = squashAtomCommandFailure(result);
+        setError(failure instanceof Error ? failure.message : "Could not create a pairing link.");
+      } else {
+        const issued = result.value;
+        onPairingLinkCreated(issued);
+        setPairingUrl(
+          setPairingTokenOnUrl(new URL("/pair", state.url), issued.credential).toString(),
+        );
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not create a pairing link.");
     }

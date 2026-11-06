@@ -32,6 +32,7 @@ import ProjectionProjectsPinArchive from "./Migrations/078_ProjectionProjectsPin
 import RepairBooleanSettledOverride from "./Migrations/079_RepairBooleanSettledOverride.ts";
 import DropOrchestrationEventCorrelationIndex from "./Migrations/080_DropOrchestrationEventCorrelationIndex.ts";
 import DelegatedRecoveryIndexes from "./Migrations/081_DelegatedRecoveryIndexes.ts";
+import ScheduledTaskThreadMode from "./Migrations/082_ScheduledTaskThreadMode.ts";
 
 const officialMigrations = [
   [57, "ScheduledTaskWebhooks", ScheduledTaskWebhooks],
@@ -57,6 +58,7 @@ const officialMigrations = [
   [77, "RepairBooleanSettledOverride", RepairBooleanSettledOverride],
   [78, "DropOrchestrationEventCorrelationIndex", DropOrchestrationEventCorrelationIndex],
   [79, "DelegatedRecoveryIndexes", DelegatedRecoveryIndexes],
+  [80, "ScheduledTaskThreadMode", ScheduledTaskThreadMode],
 ] as const;
 
 const seedOfficial = Effect.fnUntraced(function* (through: number) {
@@ -121,7 +123,7 @@ const content = Effect.gen(function* () {
   };
 });
 
-it.effect.each([65, 74, 75, 76, 77, 78, 79, 80, 81])(
+it.effect.each([65, 74, 75, 76, 77, 78, 79, 80, 81, 82])(
   "upgrades fork ledger at %s without losing existing content",
   (through) =>
     Effect.gen(function* () {
@@ -142,7 +144,7 @@ it.effect.each([65, 74, 75, 76, 77, 78, 79, 80, 81])(
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
 
-it.effect.each([57, 62, 65, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79])(
+it.effect.each([57, 62, 65, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80])(
   "upgrades official history through %s once and preserves content",
   (through) =>
     Effect.gen(function* () {
