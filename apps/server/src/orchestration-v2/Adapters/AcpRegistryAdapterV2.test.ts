@@ -1118,13 +1118,24 @@ describe("AcpRegistryAdapterV2", () => {
         ...copilot,
         supportsSteeringByInterruptRestart: true,
       });
-      // T3_COPILOT_SDK=1 swaps in the SDK runtime, which steers without cancelling.
       const sdk = { ...copilot, supportsActiveSteering: true };
+      assert.deepEqual(yield* steering({ agentId: "github-copilot-cli", copilotSdk: true }), sdk);
       assert.deepEqual(
-        yield* steering({ agentId: "github-copilot-cli" }, { T3_COPILOT_SDK: "1" }),
+        yield* steering({
+          source: "local",
+          commandPath: "C:\\tools\\copilot.cmd",
+          copilotSdk: true,
+        }),
         sdk,
       );
-      assert.deepEqual(yield* steering({ agentId: "gemini" }, { T3_COPILOT_SDK: "1" }), {
+      assert.deepEqual(
+        yield* steering(
+          { agentId: "github-copilot-cli", copilotSdk: false },
+          { T3_COPILOT_SDK: "1" },
+        ),
+        copilot,
+      );
+      assert.deepEqual(yield* steering({ agentId: "gemini", copilotSdk: true }), {
         ...copilot,
         supportsSteeringByInterruptRestart: true,
       });

@@ -321,6 +321,48 @@ describe("EnvironmentProviderSettings routing", () => {
     });
   });
 
+  it("saves the Copilot SDK switch on the selected environment and can switch back to ACP", async () => {
+    await setup();
+    const instanceId = ProviderInstanceId.make("acpRegistry_copilot");
+    const instance = {
+      driver: ProviderDriverKind.make("acpRegistry"),
+      enabled: true,
+      config: { agentId: "github-copilot-cli", customModels: ["auto"] },
+    };
+    state.settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: { [instanceId]: instance },
+    };
+    await setProviders([{ ...provider(), instanceId, driver: instance.driver }]);
+    await using screen = await render(panel({ targetInstanceId: instanceId }));
+    const toggle = page.getByRole("switch", { name: "Use Copilot SDK", exact: true });
+    await expect.element(toggle).not.toBeChecked();
+    await userEvent.click(toggle);
+    expect(state.mutateProviderInstance).toHaveBeenLastCalledWith(
+      {
+        operation: "upsert",
+        instanceId,
+        instance: { ...instance, config: { ...instance.config, copilotSdk: true } },
+      },
+      {},
+    );
+    expect(state.mutationEnvironmentIds).toContain(environmentId);
+
+    state.settings = {
+      ...state.settings,
+      providerInstances: {
+        [instanceId]: { ...instance, config: { ...instance.config, copilotSdk: true } },
+      },
+    };
+    await screen.rerender(panel({ targetInstanceId: instanceId }));
+    await expect.element(toggle).toBeChecked();
+    await userEvent.click(toggle);
+    expect(state.mutateProviderInstance).toHaveBeenLastCalledWith(
+      { operation: "upsert", instanceId, instance },
+      {},
+    );
+  });
+
   it("lets a signed-out managed Codex account switch to the existing CLI", async () => {
     await setup();
     const codex = ProviderDriverKind.make("codex");

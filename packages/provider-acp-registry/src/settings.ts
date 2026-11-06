@@ -62,9 +62,27 @@ export const AcpRegistrySettings = makeProviderSettingsSchema(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
+    copilotSdk: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({
+        title: "Use Copilot SDK",
+        description:
+          "Experimental. Enables steering during a turn and token usage. Turn off to use ACP.",
+        providerSettingsForm: { control: "switch" },
+      }),
+    ),
   },
   {
-    order: ["source", "agentId", "commandPath", "authMethodId"],
+    order: ["source", "agentId", "commandPath", "authMethodId", "copilotSdk"],
   },
 );
 export type AcpRegistrySettings = typeof AcpRegistrySettings.Type;
+
+export function isCopilotAcpSettings(value: unknown): boolean {
+  if (value === null || typeof value !== "object") return false;
+  const settings = value as Record<string, unknown>;
+  return settings.source === "local"
+    ? typeof settings.commandPath === "string" &&
+        /^copilot(\.exe|\.cmd)?$/i.test(settings.commandPath.split(/[\\/]/).pop() ?? "")
+    : settings.agentId === "github-copilot-cli";
+}

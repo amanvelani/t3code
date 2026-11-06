@@ -19,7 +19,7 @@ import {
 } from "./copilotAcp.ts";
 import { defaultInstanceIdForDriver, ProviderDriverKind } from "@t3tools/contracts";
 import { readCustomModelEntries } from "@t3tools/shared/model";
-import { AcpRegistrySettings } from "../settings.ts";
+import { AcpRegistrySettings, isCopilotAcpSettings } from "../settings.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSelfInvocation, type SelfInvocation } from "@t3tools/shared/nodeRuntime";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -191,13 +191,8 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
     options.settings.source === "local" ? `local:${options.instanceId}` : registryAgentId;
   const isDevin = registryAgentId === "devin";
   // Local installs launch the `copilot` binary directly with no registry id.
-  const isCopilot =
-    registryAgentId === "github-copilot-cli" ||
-    (options.settings.source === "local" &&
-      /^copilot(\.exe|\.cmd)?$/i.test(options.settings.commandPath.split(/[\\/]/).pop() ?? ""));
-  // Opt-in: Copilot sessions run through the official SDK instead of `copilot --acp`.
-  // The probe, model picker and driver kind stay ACP's, so clients see no difference.
-  if (isCopilot && options.environment.T3_COPILOT_SDK === "1") {
+  const isCopilot = isCopilotAcpSettings(options.settings);
+  if (isCopilot && options.settings.copilotSdk) {
     return yield* makeCopilotSdkAdapterV2({
       instanceId: options.instanceId,
       settings: options.settings,

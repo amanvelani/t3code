@@ -278,7 +278,7 @@ export interface CopilotSdkClientOptions {
 
 export type MakeCopilotSdkClient = (options: CopilotSdkClientOptions) => Promise<CopilotSdkClient>;
 
-// Loaded on first use so servers without T3_COPILOT_SDK never evaluate the SDK.
+// Loaded on first use so ACP sessions never evaluate the SDK.
 export const makeCopilotSdkClient: MakeCopilotSdkClient = async (options) => {
   const { CopilotClient, RuntimeConnection } = await import("@github/copilot-sdk");
   // An explicit stdio connection keeps the SDK off its koffi-backed in-process transport.
