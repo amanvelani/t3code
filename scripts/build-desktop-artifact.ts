@@ -73,6 +73,7 @@ const WorkspaceConfig = Schema.Struct({
   overrides: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   patchedDependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   allowBuilds: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)),
+  ignoredOptionalDependencies: Schema.optional(Schema.Array(Schema.String)),
 });
 type WorkspaceConfig = typeof WorkspaceConfig.Type;
 
@@ -84,6 +85,7 @@ const StageWorkspaceConfig = Schema.Struct({
   }),
   // pnpm 11 reads build approvals only from pnpm-workspace.yaml; omission fails staged lifecycle installs.
   allowBuilds: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)),
+  ignoredOptionalDependencies: Schema.optional(Schema.Array(Schema.String)),
   patchedDependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   overrides: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   packageExtensions: Schema.optional(
@@ -1000,8 +1002,9 @@ export const DESKTOP_FILE_EXCLUSIONS = [
   "!**/node_modules/@cursor/sdk-*/**/*",
   "!apps/desktop/prod-resources/cursor-sdk",
   "!apps/desktop/prod-resources/cursor-sdk/**/*",
-  // The installed Claude CLI is supplied explicitly; exclude optional bundled executables, retaining SDK JavaScript.
+  // Installed agent CLIs are supplied separately; retain SDK JavaScript and exclude bundled runtimes.
   "!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
+  "!**/node_modules/@github/copilot-sdk-*/**/*",
   "!**/*.map",
   "!**/*.d.cts",
   "!apps/desktop/resources/browser-secret",
@@ -1053,6 +1056,8 @@ export const WINDOWS_SERVER_ASAR_IGNORE_GLOBS = [
   "**/node_modules/@cursor/sdk-*/**",
   "**/node_modules/@anthropic-ai/claude-agent-sdk-*",
   "**/node_modules/@anthropic-ai/claude-agent-sdk-*/**",
+  "**/node_modules/@github/copilot-sdk-*",
+  "**/node_modules/@github/copilot-sdk-*/**",
   "**/node_modules/.bin",
   "**/node_modules/.bin/**",
   "**/*.map",
@@ -1591,10 +1596,18 @@ export function createStageWorkspaceConfig(input: {
   readonly platform: typeof BuildPlatform.Type;
   readonly arch: typeof BuildArch.Type;
   readonly allowBuilds?: Record<string, boolean>;
+  readonly ignoredOptionalDependencies?: ReadonlyArray<string>;
   readonly patchedDependencies?: Record<string, string>;
   readonly overrides?: Record<string, string>;
 }): StageWorkspaceConfig {
-  const { platform, arch, allowBuilds, patchedDependencies, overrides } = input;
+  const {
+    platform,
+    arch,
+    allowBuilds,
+    ignoredOptionalDependencies,
+    patchedDependencies,
+    overrides,
+  } = input;
   const hostOs = platform === "mac" ? "darwin" : platform === "win" ? "win32" : "linux";
   const hostCpu = arch === "universal" ? ["arm64", "x64"] : [arch];
   // Linux AppImages require glibc native optional dependencies; tell pnpm explicitly.
@@ -1613,6 +1626,7 @@ export function createStageWorkspaceConfig(input: {
   return {
     supportedArchitectures,
     ...(allowBuilds && Object.keys(allowBuilds).length > 0 ? { allowBuilds } : {}),
+    ...(ignoredOptionalDependencies === undefined ? {} : { ignoredOptionalDependencies }),
     ...(patchedDependencies && Object.keys(patchedDependencies).length > 0
       ? { patchedDependencies }
       : {}),
@@ -3113,6 +3127,7 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
   readonly runtimeExternalDependencies: Record<string, string>;
   readonly fffNodeVersion: string;
   readonly allowBuilds: Record<string, boolean>;
+  readonly ignoredOptionalDependencies: ReadonlyArray<string>;
   readonly patchedDependencies: Record<string, string>;
   readonly overrides: Record<string, string>;
   readonly asarPath: string;
@@ -3150,6 +3165,7 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
       platform: "win",
       arch: input.arch,
       allowBuilds: input.allowBuilds,
+      ignoredOptionalDependencies: input.ignoredOptionalDependencies,
       patchedDependencies: sidecarPatchedDependencies,
       overrides: input.overrides,
     }),
@@ -3629,6 +3645,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
   const workspaceOverrides = workspaceConfig.overrides ?? {};
   const workspacePatchedDependencies = workspaceConfig.patchedDependencies ?? {};
   const workspaceAllowBuilds = workspaceConfig.allowBuilds ?? {};
+  const ignoredOptionalDependencies = workspaceConfig.ignoredOptionalDependencies ?? [];
 
   const platformConfig = PLATFORM_CONFIG[options.platform];
   if (!platformConfig) {
@@ -3939,6 +3956,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
     platform: options.platform,
     arch: options.arch,
     allowBuilds: workspaceAllowBuilds,
+    ignoredOptionalDependencies,
     patchedDependencies: stagePatchedDependencies,
     overrides: resolvedOverrides,
   });
@@ -3974,6 +3992,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
       runtimeExternalDependencies: resolvedServerRuntimeExternalDependencies,
       fffNodeVersion: serverPackageJson.dependencies["@ff-labs/fff-node"],
       allowBuilds: workspaceAllowBuilds,
+      ignoredOptionalDependencies,
       patchedDependencies: workspacePatchedDependencies,
       overrides: resolvedOverrides,
       asarPath: windowsServerAsarPath,

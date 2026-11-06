@@ -29,6 +29,7 @@ import {
   parseWslRuntimeArchiveMembers,
   readWorkspaceConfig,
   createBuildConfig,
+  createStageWorkspaceConfig,
   DESKTOP_FILE_EXCLUSIONS,
   InvalidMacPasskeyRpDomainError,
   InvalidMacPasskeyPublishableKeyError,
@@ -552,7 +553,21 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const { allowBuilds = {} } = yield* readWorkspaceConfig();
+      const workspace = yield* readWorkspaceConfig();
+      const { allowBuilds = {} } = workspace;
+      const ignoredOptionalDependencies = workspace.ignoredOptionalDependencies ?? [];
+      assert.include(ignoredOptionalDependencies, "@github/copilot-sdk-win32-x64");
+      for (const platform of ["win", "mac", "linux"] as const) {
+        assert.deepInclude(
+          createStageWorkspaceConfig({
+            platform,
+            arch: "x64",
+            allowBuilds,
+            ignoredOptionalDependencies,
+          }),
+          { ignoredOptionalDependencies },
+        );
+      }
       const repoRoot = path.join(import.meta.dirname, "..");
       for (const key of Object.keys(allowBuilds)) {
         const tarball = key.split("@file:")[1]?.replace(/\(patch_hash=[a-f0-9]+\)$/, "");
@@ -680,6 +695,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           "node_modules/node-pty/third_party/conpty/1.0.0/win10-arm64/OpenConsole.exe",
           "node_modules/node-pty/prebuilds/win32-x64/pty.node",
           "node_modules/node-pty/prebuilds/linux-x64/pty.node",
+          "node_modules/@github/copilot-sdk-win32-x64/prebuilds/copilot-runtime.exe",
+          "node_modules/@github/copilot-sdk-win32-x64/prebuilds/runtime.node",
+          "node_modules/@github/copilot-sdk/dist/cjs/index.js",
         ];
 
         for (const nativeFile of nativeFiles) {
@@ -717,6 +735,15 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         );
         assert.isFalse(
           yield* fs.exists(path.join(unpackedRoot, "node_modules/node-pty/prebuilds/win32-arm64")),
+        );
+        assert.isFalse(
+          yield* fs.exists(path.join(unpackedRoot, "node_modules/@github/copilot-sdk-win32-x64")),
+        );
+        assert.isNotEmpty(
+          extractFile(
+            asarPath,
+            path.join("node_modules", "@github", "copilot-sdk", "dist/cjs/index.js"),
+          ),
         );
         assert.isFalse(
           yield* fs.exists(
