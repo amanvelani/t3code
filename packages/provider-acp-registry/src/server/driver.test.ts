@@ -2,9 +2,14 @@ import { AcpRegistryOperationError, ProviderInstanceId } from "@t3tools/contract
 import { AcpRegistrySettings } from "../settings.ts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 
+import type { CopilotSdkClient } from "./copilotSdk.ts";
+import { probeAcpRegistryConfiguration } from "./probe.ts";
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import {
   applyAcpRegistryAvailableCommands,
@@ -30,14 +35,26 @@ const noSessionManagement = {
   canConfigureProviders: false,
 } as const;
 
+const mockProbeLayer = Layer.mergeAll(
+  Layer.succeed(
+    SecureRandom.SecureRandom,
+    SecureRandom.make((size) => new Uint8Array(size)),
+  ),
+  Layer.succeed(
+    ChildProcessSpawner.ChildProcessSpawner,
+    ChildProcessSpawner.make(() => Effect.die("unused")),
+  ),
+);
+
 function catalogWithInspection(
   inspection: AcpRegistrySupport.AcpRegistryInspection,
+  resolved?: AcpRegistrySupport.ResolvedAcpRegistryAgent,
 ): AcpRegistrySupport.AcpRegistryCatalog["Service"] {
   return {
     search: () => Effect.die("unused search"),
     prepare: () => Effect.die("unused prepare"),
     inspect: () => Effect.succeed(inspection),
-    resolve: () => Effect.die("unused resolve"),
+    resolve: () => (resolved ? Effect.succeed(resolved) : Effect.die("unused resolve")),
     uninstallManagedBinary: () => Effect.die("unused uninstall"),
   };
 }
@@ -428,6 +445,200 @@ describe("acpRegistrySnapshotReadiness", () => {
         version: "1.0.0",
         auth: { status: "unknown" },
         message: "Checking ACP authentication, models, and commands in the background...",
+      });
+    }),
+  );
+
+  it("reports authenticated status and discovered models for Copilot SDK", () => {
+    const snapshot = buildCheckedAcpRegistrySnapshot({
+      ...identity,
+      settings: decodeSettings({ agentId: "github-copilot-cli", copilotSdk: true }),
+      checkedAt: "2026-08-13T10:00:00.000Z",
+      inspection: {
+        status: "ready",
+        agentId: "github-copilot-cli",
+        version: "1.0.0",
+        distribution: "binary",
+      },
+      probe: {
+        probe: {
+          instanceId: identity.instanceId,
+          ready: true,
+          icon: null,
+          authMethods: [],
+          models: [
+            { id: "claude-sonnet-4.5", name: "Claude 3.5 Sonnet", description: null },
+            { id: "gpt-4o", name: "GPT-4o", description: null },
+          ],
+          currentModelId: "claude-sonnet-4.5",
+          configOptions: [],
+          sessionManagement: {
+            ...noSessionManagement,
+            canLogout: true,
+          },
+        },
+        slashCommands: [],
+        skills: [],
+      },
+    });
+
+    expect(snapshot).toMatchObject({
+      installed: true,
+      status: "ready",
+      auth: {
+        status: "authenticated",
+        label: "GitHub Copilot",
+        canLogout: true,
+      },
+      models: [
+        expect.objectContaining({ slug: "claude-sonnet-4.5", isDefault: true }),
+        expect.objectContaining({ slug: "gpt-4o" }),
+      ],
+    });
+  });
+
+  it("reports unauthenticated status with terminal sign-in for Copilot SDK probe failure", () => {
+    const snapshot = buildCheckedAcpRegistrySnapshot({
+      ...identity,
+      settings: decodeSettings({ agentId: "github-copilot-cli", copilotSdk: true }),
+      checkedAt: "2026-08-13T10:00:00.000Z",
+      inspection: {
+        status: "ready",
+        agentId: "github-copilot-cli",
+        version: "1.0.0",
+        distribution: "binary",
+      },
+      probeError: new AcpRegistryOperationError({
+        reason: "authentication_failed",
+        message:
+          "GitHub Copilot is not authenticated. Sign in with 'copilot login' or in provider settings.",
+        authMethods: [
+          {
+            id: "copilot-login",
+            name: "GitHub Copilot sign in",
+            description: "Sign in with your GitHub account using the Copilot CLI in a terminal.",
+            type: "terminal",
+            command: "copilot login",
+          },
+        ],
+      }),
+    });
+
+    expect(snapshot).toMatchObject({
+      installed: true,
+      status: "warning",
+      auth: {
+        status: "unauthenticated",
+        type: "terminal",
+        label: "GitHub Copilot sign in",
+      },
+      message:
+        'Sign in in provider settings using "GitHub Copilot sign in". The login terminal runs on this environment.',
+    });
+  });
+
+  it.effect("probes Copilot SDK and reports authentication failure when unauthenticated", () =>
+    Effect.gen(function* () {
+      const settings = decodeSettings({ agentId: "github-copilot-cli", copilotSdk: true });
+      const mockClient = {
+        start: async () => {},
+        stop: async () => {},
+        getAuthStatus: async () => ({ isAuthenticated: false, statusMessage: "Not signed in" }),
+        listModels: async () => [],
+      } as unknown as CopilotSdkClient;
+
+      const result = yield* probeAcpRegistryConfiguration(
+        {
+          instanceId: identity.instanceId,
+          settings,
+          cwd: "/workspace",
+          environment: {},
+        },
+        {
+          makeCopilotSdkClient: () => Promise.resolve(mockClient),
+        },
+      ).pipe(
+        Effect.provideService(
+          AcpRegistrySupport.AcpRegistryCatalog,
+          catalogWithInspection(
+            {
+              status: "ready",
+              agentId: "github-copilot-cli",
+              version: "1.0.0",
+              distribution: "binary",
+            },
+            {
+              distribution: "binary",
+              spawn: { command: "copilot", args: [] },
+            },
+          ),
+        ),
+        Effect.provide(mockProbeLayer),
+        Effect.flip,
+      );
+
+      expect(result).toMatchObject({
+        reason: "authentication_failed",
+        authMethods: [
+          expect.objectContaining({
+            id: "copilot-login",
+            type: "terminal",
+            command: "copilot login",
+          }),
+        ],
+      });
+    }),
+  );
+
+  it.effect("probes Copilot SDK and reports discovered models when authenticated", () =>
+    Effect.gen(function* () {
+      const settings = decodeSettings({ agentId: "github-copilot-cli", copilotSdk: true });
+      const mockClient = {
+        start: async () => {},
+        stop: async () => {},
+        getAuthStatus: async () => ({ isAuthenticated: true, login: "aman" }),
+        listModels: async () => [
+          { id: "claude-sonnet-4.5", name: "Claude 3.5 Sonnet" },
+          { id: "gpt-4o", name: "GPT-4o" },
+        ],
+      } as unknown as CopilotSdkClient;
+
+      const result = yield* probeAcpRegistryConfiguration(
+        {
+          instanceId: identity.instanceId,
+          settings,
+          cwd: "/workspace",
+          environment: {},
+        },
+        {
+          makeCopilotSdkClient: () => Promise.resolve(mockClient),
+        },
+      ).pipe(
+        Effect.provideService(
+          AcpRegistrySupport.AcpRegistryCatalog,
+          catalogWithInspection(
+            {
+              status: "ready",
+              agentId: "github-copilot-cli",
+              version: "1.0.0",
+              distribution: "binary",
+            },
+            {
+              distribution: "binary",
+              spawn: { command: "copilot", args: [] },
+            },
+          ),
+        ),
+        Effect.provide(mockProbeLayer),
+      );
+
+      expect(result.probe).toMatchObject({
+        ready: true,
+        models: [
+          { id: "claude-sonnet-4.5", name: "Claude 3.5 Sonnet", description: null },
+          { id: "gpt-4o", name: "GPT-4o", description: null },
+        ],
+        currentModelId: "claude-sonnet-4.5",
       });
     }),
   );

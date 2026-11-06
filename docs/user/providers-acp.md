@@ -5,9 +5,9 @@ T3 Code can run installed ACP commands or coding agents from the official
 own models, tools, and sign-in, while T3 Code provides projects, threads, checkpoints, and task
 delegation.
 
-Agents that T3 Code supports as their own providers, such as Codex, Claude, Cursor, Grok, OpenCode,
-Pi, and [Antigravity](./providers-antigravity.md), don't appear in the Registry list. Enable them in
-**Settings → Providers** instead.
+Agents that T3 Code supports as their own providers, such as Codex, Claude, Cursor, GitHub Copilot,
+Grok, OpenCode, Pi, and [Antigravity](./providers-antigravity.md), don't appear in the Registry list.
+Enable them in **Settings → Providers** instead.
 
 T3 Code prefers the current ACP v2 preview protocol and uses its richer messages, usage, plans,
 configuration, compaction, and agent-terminal updates when the agent supports them. It also
@@ -18,12 +18,16 @@ Claude Agent uses the ACP v2 preview by default for Registry and local `claude-a
 commands. If you encounter preview issues, set `CLAUDE_AGENT_ACP_EXPERIMENTAL_V2=0` in the
 provider instance's environment overrides to use ACP v1.
 
-## Copilot SDK option
+## GitHub Copilot
 
-For GitHub Copilot, turn on **Use Copilot SDK** in **Settings → Providers** to use the
-experimental SDK integration. It supports steering during a turn, token usage, and instructions
-that survive compaction, using the same Copilot installation and model picker. Turn it off to
-return to ACP. Changing this setting restarts the provider, so finish running turns first.
+GitHub Copilot can be selected directly from **Settings → Providers → Add provider** as a featured
+provider. It uses the GitHub Copilot SDK integration by default, providing live steering during
+a turn, subagent child threads, token usage tracking, and system instructions that survive compaction,
+while sharing your local Copilot CLI authentication and model discovery.
+
+Existing Copilot instances configured via the ACP Registry continue to work and can toggle
+**Use Copilot SDK** in their provider settings to switch between the SDK integration and standard ACP.
+Changing this setting restarts the provider, so finish running turns first.
 
 ## Add an agent
 

@@ -65,6 +65,7 @@ import { useSecretSources } from "./SecretSourceInput";
 const INSTANCE_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
 const ACP_REGISTRY_DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
+const COPILOT_DRIVER_KIND = ProviderDriverKind.make("copilot");
 const DEFAULT_DRIVER_OPTION = providerClients.definitions[0]!;
 const DRIVER_OPTIONS = providerClients.definitions.filter(
   (option) => option.driverKind !== ACP_REGISTRY_DRIVER_KIND,
@@ -159,11 +160,16 @@ export function AddProviderInstanceDialog({
   const [addingChatGptAccount, setAddingChatGptAccount] = useState(false);
   // Drivers the administrator's policy leaves out are not offered at all.
   const managedPolicy = useManagedPolicy(environmentId);
+  const isDriverOptionAllowed = (driverKind: ProviderDriverKind) =>
+    driverKind === COPILOT_DRIVER_KIND
+      ? isManagedDriverAllowed(managedPolicy, ACP_REGISTRY_DRIVER_KIND) ||
+        isManagedDriverAllowed(managedPolicy, driverKind)
+      : isManagedDriverAllowed(managedPolicy, driverKind);
   const featuredDriverOptions = FEATURED_DRIVER_OPTIONS.filter((option) =>
-    isManagedDriverAllowed(managedPolicy, option.driverKind),
+    isDriverOptionAllowed(option.driverKind),
   );
   const moreDriverOptions = MORE_DRIVER_OPTIONS.filter((option) =>
-    isManagedDriverAllowed(managedPolicy, option.driverKind),
+    isDriverOptionAllowed(option.driverKind),
   );
   const acpRegistryAllowed = isManagedDriverAllowed(managedPolicy, ACP_REGISTRY_DRIVER_KIND);
   const [driver, setDriver] = useState<ProviderDriverKind>(
@@ -195,6 +201,7 @@ export function AddProviderInstanceDialog({
 
   const driverOption = providerClients.get(driver) ?? DEFAULT_DRIVER_OPTION;
   const isAcpRegistry = driver === ACP_REGISTRY_DRIVER_KIND;
+  const isCopilot = driver === COPILOT_DRIVER_KIND;
   const showRegistrySearch =
     !createdInstanceId &&
     !addingChatGptAccount &&
@@ -227,7 +234,13 @@ export function AddProviderInstanceDialog({
   const identityStep = 1;
   const previewLabel = label.trim() || `${driverOption.label} Workspace`;
 
-  const configDraft = configByDriver[driver] ?? EMPTY_CONFIG_DRAFT;
+  const defaultDraftForDriver = (d: ProviderDriverKind): Record<string, unknown> => {
+    if (d === COPILOT_DRIVER_KIND) {
+      return { agentId: "github-copilot-cli", copilotSdk: true, distribution: "auto" };
+    }
+    return EMPTY_CONFIG_DRAFT;
+  };
+  const configDraft = configByDriver[driver] ?? defaultDraftForDriver(driver);
   const isLocalAcp = isAcpRegistry && isManualAcpConfiguration && configDraft.source === "local";
   const localCommandPath =
     typeof configDraft.commandPath === "string" ? configDraft.commandPath.trim() : "";
@@ -274,7 +287,11 @@ export function AddProviderInstanceDialog({
     if (navigation.kind === "blocked") {
       setHasAttemptedSubmit(true);
     }
-    if (isAcpRegistry && !isLocalAcp && navigation.kind === "navigate" && navigation.step === 2) {
+    if (
+      ((isAcpRegistry && !isLocalAcp) || isCopilot) &&
+      navigation.kind === "navigate" &&
+      navigation.step === 2
+    ) {
       void handleSave();
       return;
     }
@@ -293,9 +310,13 @@ export function AddProviderInstanceDialog({
               instanceIdError,
               selectionError: acpSelectionError,
             })
-        : resolveWizardNavigation(wizardStep, requestedStep, ADD_PROVIDER_WIZARD_STEPS.length, {
-            instanceIdError,
-          }),
+        : isCopilot
+          ? resolveWizardNavigation(wizardStep, requestedStep, ACP_REGISTRY_WIZARD_STEPS.length, {
+              instanceIdError,
+            })
+          : resolveWizardNavigation(wizardStep, requestedStep, ADD_PROVIDER_WIZARD_STEPS.length, {
+              instanceIdError,
+            }),
     );
   };
 
@@ -365,7 +386,8 @@ export function AddProviderInstanceDialog({
   };
 
   // A policy that owns this driver's launch settings also rules out ChatGPT's own runtime.
-  const driverLocks = managedInstanceLocks(managedPolicy, driver);
+  const targetDriver = isCopilot ? ACP_REGISTRY_DRIVER_KIND : driver;
+  const driverLocks = managedInstanceLocks(managedPolicy, targetDriver);
 
   const handleSave = async () => {
     if (!readEnvironmentScope(environmentId, AuthProvidersManageScope)) return;
@@ -373,15 +395,23 @@ export function AddProviderInstanceDialog({
     setHasAttemptedSubmit(true);
     if (instanceIdError !== null || (isAcpRegistry && acpSelectionError !== null)) return;
 
+    const saveDriver = isCopilot ? ACP_REGISTRY_DRIVER_KIND : driver;
     const config =
       driver === "codex"
         ? { ...configByDriver[driver], setupMode: "existing" }
-        : (configByDriver[driver] ?? {});
+        : isCopilot
+          ? {
+              agentId: "github-copilot-cli",
+              copilotSdk: true,
+              distribution: "auto",
+              ...configByDriver[driver],
+            }
+          : (configByDriver[driver] ?? {});
     const hasConfig = Object.keys(config).length > 0;
     const normalizedAccentColor = normalizeProviderAccentColor(accentColor);
 
     const nextInstance: ProviderInstanceConfig = {
-      driver,
+      driver: saveDriver,
       enabled: true,
       ...(label.trim().length > 0 ? { displayName: label.trim() } : {}),
       ...(normalizedAccentColor ? { accentColor: normalizedAccentColor } : {}),
@@ -406,7 +436,7 @@ export function AddProviderInstanceDialog({
       return;
     }
     onCreated?.(brandedId);
-    if (isAcpRegistry && !isLocalAcp) {
+    if ((isAcpRegistry && !isLocalAcp) || isCopilot) {
       setCreatedInstanceId(brandedId);
       setIsSaving(false);
       setWizardStep(2);
@@ -445,6 +475,15 @@ export function AddProviderInstanceDialog({
               disabled={isSaving || isPreparingRegistryAgent || createdInstanceId !== null}
               identityStep={1}
               prerequisite={{ step: 0, error: acpSelectionError }}
+              onNavigation={applyWizardNavigation}
+            />
+          ) : isCopilot ? (
+            <AddProviderInstanceWizardSteps
+              currentStep={wizardStep}
+              summaries={wizardStepSummaries}
+              instanceIdError={instanceIdError}
+              steps={ACP_REGISTRY_WIZARD_STEPS}
+              disabled={isSaving || isPreparingRegistryAgent || createdInstanceId !== null}
               onNavigation={applyWizardNavigation}
             />
           ) : (
@@ -684,7 +723,7 @@ export function AddProviderInstanceDialog({
                 />
               </SettingsGroup>
 
-              {!isAcpRegistry && driverSettingsFields.length > 0 ? (
+              {!isAcpRegistry && !isCopilot && driverSettingsFields.length > 0 ? (
                 <SettingsGroup variant="plain" className={cn(wizardStep !== 2 && "hidden")}>
                   <ProviderSettingsForm
                     definition={driverOption}
@@ -698,7 +737,7 @@ export function AddProviderInstanceDialog({
                     environmentId={environmentId}
                   />
                 </SettingsGroup>
-              ) : !isAcpRegistry && wizardStep === 2 ? (
+              ) : !isAcpRegistry && !isCopilot && wizardStep === 2 ? (
                 <div className="grid gap-2">
                   <p className="text-sm text-muted-foreground">
                     This driver has no required configuration. You can add the instance now.
@@ -734,7 +773,7 @@ export function AddProviderInstanceDialog({
                     />
                   )}
                 </>
-              ) : wizardStep < (isAcpRegistry ? 1 : 2) ? (
+              ) : wizardStep < (isAcpRegistry || isCopilot ? 1 : 2) ? (
                 <Button
                   size="sm"
                   disabled={isPreparingRegistryAgent}
@@ -750,7 +789,7 @@ export function AddProviderInstanceDialog({
                 >
                   {isSaving
                     ? "Adding..."
-                    : isAcpRegistry && !isLocalAcp
+                    : (isAcpRegistry && !isLocalAcp) || isCopilot
                       ? "Continue to sign-in"
                       : "Add instance"}
                 </Button>

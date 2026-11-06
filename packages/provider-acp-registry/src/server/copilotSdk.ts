@@ -40,6 +40,25 @@ export interface CopilotSdkClient {
   ) => Promise<CopilotSdkSession>;
   readonly stop: () => Promise<ReadonlyArray<Error>>;
   readonly forceStop: () => Promise<void>;
+  readonly getAuthStatus?: () => Promise<{
+    readonly isAuthenticated: boolean;
+    readonly authType?: string;
+    readonly host?: string;
+    readonly login?: string;
+    readonly statusMessage?: string;
+  }>;
+  readonly getStatus?: () => Promise<{
+    readonly version: string;
+    readonly protocolVersion: number;
+  }>;
+  readonly listModels?: () => Promise<
+    ReadonlyArray<{
+      readonly id: string;
+      readonly name: string;
+      readonly capabilities?: unknown;
+      readonly supportedReasoningEfforts?: ReadonlyArray<string>;
+    }>
+  >;
   /**
    * The Copilot process, so T3 can see it exit and stop its whole process tree. Undefined until
    * start() spawned it; once read, kept, since a failed stop() clears the SDK's own field.
@@ -300,6 +319,9 @@ export const makeCopilotSdkClient: MakeCopilotSdkClient = async (options) => {
     resumeSession: (sessionId, config) => client.resumeSession(sessionId, config),
     stop: () => client.stop(),
     forceStop: () => client.forceStop(),
+    getAuthStatus: () => client.getAuthStatus(),
+    getStatus: () => client.getStatus(),
+    listModels: () => client.listModels(),
     get process() {
       tracked ??= copilotClientProcess(client);
       return tracked;

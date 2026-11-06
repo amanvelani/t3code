@@ -10,11 +10,12 @@ import {
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
-import { AcpRegistrySettings } from "../settings.ts";
+import { AcpRegistrySettings, isCopilotAcpSettings } from "../settings.ts";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -22,6 +23,13 @@ import * as Result from "effect/Result";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+
+import {
+  copilotSdkCliCandidates,
+  makeCopilotSdkClient,
+  type MakeCopilotSdkClient,
+} from "./copilotSdk.ts";
 
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
@@ -314,9 +322,12 @@ export type AcpRegistryConfigurationProbe<Requirements = never> = (
   input: AcpRegistryConfigurationProbeInput,
 ) => Effect.Effect<AcpRegistryConfigurationProbeResult, AcpRegistryOperationError, Requirements>;
 
-export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeConfiguration")(
+const probeCopilotSdkConfiguration = Effect.fn("AcpRegistryProbe.probeCopilotSdkConfiguration")(
   function* (
     input: AcpRegistryConfigurationProbeInput,
+    options?: {
+      readonly makeClient?: MakeCopilotSdkClient;
+    },
   ): Effect.fn.Return<
     AcpRegistryConfigurationProbeResult,
     AcpRegistryOperationError,
@@ -324,6 +335,174 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
     | ChildProcessSpawner.ChildProcessSpawner
     | SecureRandom.SecureRandom
   > {
+    const catalog = yield* AcpRegistrySupport.AcpRegistryCatalog;
+    const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem);
+
+    const resolved = yield* catalog
+      .resolve(input.settings, input.cwd, input.environment)
+      .pipe(Effect.mapError(AcpRegistrySupport.toAcpRegistryOperationError));
+
+    const platform = yield* HostProcess.Platform;
+    const architecture = yield* HostProcess.Architecture;
+    const candidates = copilotSdkCliCandidates({
+      command: resolved.spawn.command,
+      platform,
+      architecture,
+    });
+
+    let cliPath: string | undefined = input.environment.COPILOT_CLI_PATH?.trim();
+    if (!cliPath) {
+      if (candidates.length === 1) {
+        cliPath = candidates[0]!;
+      } else if (Option.isSome(fileSystem)) {
+        for (const candidate of candidates) {
+          if (yield* fileSystem.value.exists(candidate).pipe(Effect.orElseSucceed(() => false))) {
+            cliPath = candidate;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!cliPath) {
+      return yield* new AcpRegistryOperationError({
+        reason: "runner_unavailable",
+        message: "Could not find the Copilot executable behind its npm shim; set COPILOT_CLI_PATH",
+      });
+    }
+
+    const makeClient = options?.makeClient ?? makeCopilotSdkClient;
+    const client = yield* Effect.tryPromise({
+      try: () =>
+        makeClient({
+          cliPath,
+          cwd: input.cwd,
+          env: {
+            ...input.environment,
+            ELECTRON_RUN_AS_NODE: "1",
+          },
+        }),
+      catch: (cause) =>
+        new AcpRegistryOperationError({
+          reason: "runner_unavailable",
+          message: "Could not launch the Copilot SDK client.",
+          cause,
+        }),
+    });
+
+    yield* Effect.tryPromise({
+      try: () => client.start(),
+      catch: (cause) =>
+        new AcpRegistryOperationError({
+          reason: "probe_failed",
+          message: "Could not connect to GitHub Copilot CLI.",
+          cause,
+        }),
+    });
+
+    let authStatus: { isAuthenticated: boolean; login?: string; statusMessage?: string } = {
+      isAuthenticated: false,
+    };
+    if (typeof client.getAuthStatus === "function") {
+      authStatus = yield* Effect.promise(async () => {
+        try {
+          return await client.getAuthStatus!();
+        } catch {
+          return { isAuthenticated: false };
+        }
+      });
+    }
+
+    const authMethods: ReadonlyArray<AcpRegistryProbeAuthMethod> = [
+      {
+        id: "copilot-login",
+        name: "GitHub Copilot sign in",
+        description: "Sign in with your GitHub account using the Copilot CLI in a terminal.",
+        type: "terminal",
+        command: `${resolved.spawn.command} login`,
+      },
+    ];
+
+    if (!authStatus.isAuthenticated) {
+      if (typeof client.stop === "function") {
+        yield* Effect.tryPromise(() => client.stop()).pipe(Effect.ignore({ log: true }));
+      }
+      return yield* new AcpRegistryOperationError({
+        reason: "authentication_failed",
+        message:
+          authStatus.statusMessage ||
+          "GitHub Copilot is not authenticated. Sign in with 'copilot login' or in provider settings.",
+        authMethods,
+      });
+    }
+
+    let models: Array<AcpRegistryProbeModel> = [];
+    if (typeof client.listModels === "function") {
+      const modelsList = yield* Effect.promise(async () => {
+        try {
+          return await client.listModels!();
+        } catch {
+          return [];
+        }
+      });
+      models = modelsList.map((m) => ({
+        id: m.id,
+        name: m.name || m.id,
+        description: null,
+      }));
+    }
+    if (models.length === 0) {
+      models = [{ id: "auto", name: "Auto", description: null }];
+    }
+
+    if (typeof client.stop === "function") {
+      yield* Effect.tryPromise(() => client.stop()).pipe(Effect.ignore({ log: true }));
+    }
+
+    return {
+      probe: AcpRegistryProbeResult.make({
+        instanceId: input.instanceId,
+        ready: true,
+        icon: null,
+        authMethods,
+        models,
+        currentModelId: models[0]?.id ?? null,
+        configOptions: [],
+        sessionManagement: {
+          canList: false,
+          canLoad: false,
+          canResume: false,
+          canLogout: true,
+          canDelete: false,
+          canConfigureProviders: false,
+        },
+      }),
+      slashCommands: [],
+      skills: [],
+    };
+  },
+);
+
+export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeConfiguration")(
+  function* (
+    input: AcpRegistryConfigurationProbeInput,
+    options?: {
+      readonly makeCopilotSdkClient?: MakeCopilotSdkClient;
+    },
+  ): Effect.fn.Return<
+    AcpRegistryConfigurationProbeResult,
+    AcpRegistryOperationError,
+    | AcpRegistrySupport.AcpRegistryCatalog
+    | ChildProcessSpawner.ChildProcessSpawner
+    | SecureRandom.SecureRandom
+  > {
+    if (isCopilotAcpSettings(input.settings) && input.settings.copilotSdk) {
+      return yield* probeCopilotSdkConfiguration(
+        input,
+        options?.makeCopilotSdkClient ? { makeClient: options.makeCopilotSdkClient } : undefined,
+      );
+    }
+
     const catalog = yield* AcpRegistrySupport.AcpRegistryCatalog;
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const random = yield* SecureRandom.SecureRandom;

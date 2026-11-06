@@ -5,7 +5,7 @@ import {
   isProviderDriverKind,
   ProviderDriverKind,
 } from "@t3tools/contracts";
-import { acpRegistryClient } from "@t3tools/provider-acp-registry/client";
+import { acpRegistryClient, copilotClient } from "@t3tools/provider-acp-registry/client";
 import { makeProviderClientRegistry } from "@t3tools/provider-core/client";
 import { modelShortName } from "@t3tools/provider-core/modelShortName";
 import { cursorClient } from "@t3tools/provider-cursor/client";
@@ -31,6 +31,7 @@ export const providerClients = makeProviderClientRegistry([
     acpRegistryAgentIds: ["claude-acp"],
     settingsSchema: ClaudeSettings,
   },
+  copilotClient,
   cursorClient,
   grokClient,
   fxClient,

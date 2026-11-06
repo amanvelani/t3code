@@ -305,4 +305,31 @@ describe("AddProviderInstanceDialog environment routing", () => {
     await screen.rerender(dialog());
     expect(button("Add instance").disabled).toBe(true);
   });
+
+  it("exposes GitHub Copilot directly in featured providers and transitions to sign-in", async () => {
+    setup();
+    await using _screen = await render(dialog());
+    expect(radio("GitHub Copilot")).toBeDefined();
+
+    await act(async () => radio("GitHub Copilot")!.click());
+    await click("Next");
+    expect(document.body.textContent).toContain("Shown in the provider list.");
+    await click("Continue to sign-in");
+
+    expect(settingsHooks.mutate).toHaveBeenCalledWith({
+      operation: "create",
+      instanceId: "copilot",
+      instance: {
+        driver: ProviderDriverKind.make("acpRegistry"),
+        enabled: true,
+        displayName: "GitHub Copilot",
+        config: {
+          agentId: "github-copilot-cli",
+          copilotSdk: true,
+          distribution: "auto",
+        },
+      },
+    });
+    expect(signInStep()?.textContent).toContain("remote-device/copilot");
+  });
 });
