@@ -18,6 +18,13 @@ Claude Agent uses the ACP v2 preview by default for Registry and local `claude-a
 commands. If you encounter preview issues, set `CLAUDE_AGENT_ACP_EXPERIMENTAL_V2=0` in the
 provider instance's environment overrides to use ACP v1.
 
+## Copilot SDK option
+
+For GitHub Copilot, turn on **Use Copilot SDK** in **Settings → Providers** to use the
+experimental SDK integration. It supports steering during a turn, token usage, and instructions
+that survive compaction, using the same Copilot installation and model picker. Turn it off to
+return to ACP. Changing this setting restarts the provider, so finish running turns first.
+
 ## Add an agent
 
 1. Open **Settings → Providers**.

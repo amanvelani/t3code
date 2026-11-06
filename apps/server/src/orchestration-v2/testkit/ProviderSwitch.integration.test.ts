@@ -46,6 +46,7 @@ import {
   canReuseCodexContextUsage,
 } from "../Adapters/CodexAdapterV2.ts";
 import { AcpProviderCapabilitiesV2 } from "@t3tools/provider-acp/server/adapter";
+import { CopilotPromptNotSentError } from "@t3tools/provider-acp-registry/testing";
 import * as EventSink from "../EventSink.ts";
 import * as EventStore from "../EventStore.ts";
 import * as LegacyV1ThreadImporter from "../legacy/LegacyV1ThreadImporter.ts";
@@ -1485,6 +1486,12 @@ describe("orchestration v2 provider switching", () => {
       new ClaudeAgentSdkQueryRunnerError({
         method: "setMcpServers",
         cause: new ClaudeMcpRegistrationTimeoutError(),
+      }),
+    ],
+    [
+      "a Copilot setting rejected before the prompt",
+      new CopilotPromptNotSentError({
+        cause: new Error("Reasoning effort max is not supported by gpt-5.5"),
       }),
     ],
   ] as const)("keeps the native session after turns refused for %s", ([, refusalCause]) =>

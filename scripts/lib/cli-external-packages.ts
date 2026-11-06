@@ -3,6 +3,9 @@
 const CLI_RUNTIME_EXTERNAL_PREFIXES = [
   // Cursor ships computed Webpack imports and platform helper packages.
   "@cursor/sdk",
+  // Copilot's entry point loads its native transport, even when T3 selects stdio.
+  "@github/copilot-sdk",
+  "vscode-jsonrpc",
   // Playwright reads package.json and browsers.json beside its runtime modules.
   "playwright-core",
   "node-pty",

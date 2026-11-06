@@ -1085,13 +1085,16 @@ describe("AcpRegistryAdapterV2", () => {
   // regression: #26695 cancelling a Copilot prompt kills its background agents
   it.effect("never steers Copilot by cancelling its prompt", () =>
     Effect.gen(function* () {
-      const steering = Effect.fn("steering")(function* (config: Record<string, unknown>) {
+      const steering = Effect.fn("steering")(function* (
+        config: Record<string, unknown>,
+        environment: NodeJS.ProcessEnv = {},
+      ) {
         const instanceId = ProviderInstanceId.make("acp-registry-steering");
         const adapter = yield* makeAcpRegistryAdapterV2({
           selfInvocation: yield* resolveSelfInvocation(),
           instanceId,
           settings: yield* decodeAcpRegistryAdapterSettings(config),
-          environment: {},
+          environment,
         }).pipe(Effect.provide(layerInjectedRuntimeCatalog));
         const { turns } = yield* adapter.getCapabilities();
         return {
@@ -1112,6 +1115,27 @@ describe("AcpRegistryAdapterV2", () => {
         copilot,
       );
       assert.deepEqual(yield* steering({ agentId: "gemini" }), {
+        ...copilot,
+        supportsSteeringByInterruptRestart: true,
+      });
+      const sdk = { ...copilot, supportsActiveSteering: true };
+      assert.deepEqual(yield* steering({ agentId: "github-copilot-cli", copilotSdk: true }), sdk);
+      assert.deepEqual(
+        yield* steering({
+          source: "local",
+          commandPath: "C:\\tools\\copilot.cmd",
+          copilotSdk: true,
+        }),
+        sdk,
+      );
+      assert.deepEqual(
+        yield* steering(
+          { agentId: "github-copilot-cli", copilotSdk: false },
+          { T3_COPILOT_SDK: "1" },
+        ),
+        copilot,
+      );
+      assert.deepEqual(yield* steering({ agentId: "gemini", copilotSdk: true }), {
         ...copilot,
         supportsSteeringByInterruptRestart: true,
       });
