@@ -323,9 +323,10 @@ describe("EnvironmentProviderSettings routing", () => {
 
   it("saves the Copilot SDK switch on the selected environment and can switch back to ACP", async () => {
     await setup();
-    const instanceId = ProviderInstanceId.make("acpRegistry_copilot");
+    const instanceId = ProviderInstanceId.make("copilot");
     const instance = {
       driver: ProviderDriverKind.make("acpRegistry"),
+      displayName: "GitHub Copilot",
       enabled: true,
       config: { agentId: "github-copilot-cli", customModels: ["auto"] },
     };
@@ -335,6 +336,9 @@ describe("EnvironmentProviderSettings routing", () => {
     };
     await setProviders([{ ...provider(), instanceId, driver: instance.driver }]);
     await using screen = await render(panel({ targetInstanceId: instanceId }));
+    await expect
+      .element(page.getByRole("button", { name: "Select GitHub Copilot", exact: true }))
+      .toHaveLength(1);
     const toggle = page.getByRole("switch", { name: "Use Copilot SDK", exact: true });
     await expect.element(toggle).not.toBeChecked();
     await userEvent.click(toggle);

@@ -527,7 +527,7 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
             Effect.fail(
               new AcpRegistryOperationError({
                 reason: "probe_failed",
-                message: `The Copilot agent did not resolve and create a test session within ${PROBE_TIMEOUT_SECONDS} seconds. Package installation or agent startup may be slow; this check retries on the next provider refresh.`,
+                message: `GitHub Copilot did not finish checking availability within ${PROBE_TIMEOUT_SECONDS} seconds. Package installation or agent startup may be slow; this check retries on the next provider refresh.`,
               }),
             ),
         }),
@@ -981,7 +981,8 @@ export const logoutAcpRegistry = Effect.fn("AcpRegistryProbe.logout")(
     if (isCopilotAcpSettings(input.settings) && input.settings.copilotSdk) {
       return yield* new AcpRegistryOperationError({
         reason: "logout_unsupported",
-        message: "GitHub Copilot does not support sign-out through the CLI or SDK.",
+        message:
+          "In-app sign-out is unavailable for GitHub Copilot. Manage accounts in the Copilot CLI.",
       });
     }
     const runtime = yield* makeAcpRegistryManagementRuntime(input);

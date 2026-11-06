@@ -455,7 +455,7 @@ export const makeAcpRegistryAuth = Effect.fn("makeAcpRegistryAuth")(function* (o
       if (isCopilotAcpSettings(options.settings) && options.settings.copilotSdk) {
         return yield* failure(
           "logout",
-          "GitHub Copilot does not support sign-out through the CLI or SDK.",
+          "In-app sign-out is unavailable for GitHub Copilot. Manage accounts in the Copilot CLI.",
         );
       }
       const resolved = yield* resolve;
