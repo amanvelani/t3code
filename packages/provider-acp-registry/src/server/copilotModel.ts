@@ -32,7 +32,7 @@ export function parseCopilotModelSelection(modelSelection: string): CopilotParse
           return {
             selectionModel: modelSelection,
             runtimeModel: "auto",
-            autoTier: autoTier.trim(),
+            autoTier,
             isFusion: true,
           };
         }
@@ -59,16 +59,18 @@ export function formatCopilotFusionDisplayName(descriptor: {
   readonly id: string;
   readonly displayName?: string;
   readonly fusionTier?: string;
+  readonly type?: string;
 }): string {
   const name =
     descriptor.displayName?.trim() ||
     (descriptor.fusionTier
       ? descriptor.fusionTier.charAt(0).toUpperCase() + descriptor.fusionTier.slice(1)
       : descriptor.id);
-  if (/^copilot fusion\b/i.test(name)) {
+  const prefix = descriptor.type === "auto" && !descriptor.fusionTier ? "Auto" : "Copilot Fusion";
+  if (name.toLowerCase().startsWith(`${prefix.toLowerCase()} `)) {
     return name;
   }
-  return `Copilot Fusion ${name}`;
+  return `${prefix} ${name}`;
 }
 
 export function buildCopilotDiscoveredModels(catalog: {
@@ -115,8 +117,8 @@ export function buildCopilotDiscoveredModels(catalog: {
     if (executionType !== "auto" && executionType !== "fusion") {
       continue;
     }
-    const opaqueId = tier.id?.trim();
-    if (!opaqueId) {
+    const opaqueId = tier.id;
+    if (!opaqueId?.trim()) {
       continue;
     }
 

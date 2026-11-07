@@ -35,6 +35,10 @@ describe("copilotModel helper", () => {
       autoTier: undefined,
       isFusion: false,
     });
+    const opaqueTier = " future-tier/v2 ";
+    expect(parseCopilotModelSelection(encodeCopilotFusionModelId(opaqueTier)).autoTier).toBe(
+      opaqueTier,
+    );
   });
 
   it("throws on malformed JSON model selections without silent routing", () => {
@@ -92,6 +96,18 @@ describe("copilotModel helper", () => {
             status: { enabled: true, pickerVisible: true },
           },
           {
+            id: " future-tier/v2 ",
+            displayName: "Future",
+            type: "fusion",
+            status: { enabled: true },
+          },
+          {
+            id: "efficiency",
+            displayName: "Efficiency",
+            type: "auto",
+            status: { enabled: true },
+          },
+          {
             id: "fast",
             displayName: "Fast",
             type: "auto",
@@ -125,6 +141,16 @@ describe("copilotModel helper", () => {
         id: '{"model":"auto","autoTier":"hydrafusion"}',
         name: "Copilot Fusion High",
         description: "Deeper reasoning",
+      },
+      {
+        id: '{"model":"auto","autoTier":" future-tier/v2 "}',
+        name: "Copilot Fusion Future",
+        description: null,
+      },
+      {
+        id: '{"model":"auto","autoTier":"efficiency"}',
+        name: "Auto Efficiency",
+        description: null,
       },
       { id: "gpt-4o", name: "GPT-4o", description: null },
     ]);

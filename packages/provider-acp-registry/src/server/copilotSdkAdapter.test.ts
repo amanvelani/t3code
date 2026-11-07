@@ -409,6 +409,7 @@ const makeHarness = Effect.fnUntraced(function* (
   existingProviderThread?: OrchestrationV2ProviderThread,
   environment: NodeJS.ProcessEnv = { PATH: "/usr/bin" },
   instanceId = INSTANCE_ID,
+  modelSelection = selection(),
 ) {
   const adapter = yield* makeCopilotSdkAdapterV2({
     instanceId,
@@ -421,7 +422,7 @@ const makeHarness = Effect.fnUntraced(function* (
   const runtime = yield* adapter.openSession({
     threadId: THREAD_ID,
     providerSessionId: ProviderSessionId.make("session-copilot"),
-    modelSelection: selection(),
+    modelSelection,
     runtimePolicy: policy,
   });
   const emitted = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
@@ -469,7 +470,7 @@ const makeHarness = Effect.fnUntraced(function* (
   };
   const providerThread = yield* runtime.ensureThread({
     threadId: THREAD_ID,
-    modelSelection: selection(),
+    modelSelection,
     runtimePolicy: policy,
     ...(existingProviderThread ? { existingProviderThread } : {}),
   });
@@ -2742,7 +2743,15 @@ describe("CopilotSdkAdapterV2", () => {
         const fusionMax = encodeCopilotFusionModelId("hydrafusion-max");
 
         // 1. Session create with Fusion selection:
-        const harness = yield* makeHarness(fake, undefined, { PATH: "/usr/bin" });
+        const initialSelection = { ...selection(), model: fusionHigh };
+        const harness = yield* makeHarness(
+          fake,
+          undefined,
+          { PATH: "/usr/bin" },
+          INSTANCE_ID,
+          initialSelection,
+        );
+        assert.deepInclude(fake.config(), { model: "auto", capi: { autoTier: "hydrafusion" } });
         // Launches must configure ELECTRON_RUN_AS_NODE and required feature flags
         assert.strictEqual(fake.launches.length, 1);
         const launchEnv = fake.launches[0]!.env;
@@ -2757,15 +2766,6 @@ describe("CopilotSdkAdapterV2", () => {
           modelSelection: { ...highInput.modelSelection, model: fusionHigh },
         };
         yield* harness.runtime.startTurn(highTurn);
-        // Switched to model 'auto' with autoTier 'hydrafusion'
-        assert.deepStrictEqual((yield* fake.takeCall("model.switchTo")).args, [
-          {
-            modelId: "auto",
-            autoTier: "hydrafusion",
-            reasoningEffort: null,
-            contextTier: "long_context",
-          },
-        ]);
         yield* fake.takeCall("sendAndWait");
         yield* fake.finishRun();
         yield* harness.untilTerminal();
@@ -2867,7 +2867,17 @@ describe("CopilotSdkAdapterV2", () => {
           createdAt: now,
           updatedAt: now,
         };
-        const resumeHarness = yield* makeHarness(resumeFake, existingThread);
+        const resumeHarness = yield* makeHarness(
+          resumeFake,
+          existingThread,
+          { PATH: "/usr/bin" },
+          INSTANCE_ID,
+          initialSelection,
+        );
+        assert.deepInclude(resumeFake.resumes[0]?.config, {
+          model: "auto",
+          capi: { autoTier: "hydrafusion" },
+        });
         const coldTurn = yield* turnInput(resumeHarness.providerThread, [], 2);
         const coldFusionTurn = {
           ...coldTurn,
