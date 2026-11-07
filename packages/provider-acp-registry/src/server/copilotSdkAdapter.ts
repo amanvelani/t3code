@@ -80,7 +80,9 @@ import {
 import type { AcpRegistrySettings } from "../settings.ts";
 import type * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import {
+  copilotSdkRuntimeEnvironment,
   makeCopilotSdkClient,
+  parseCopilotModelSelection,
   resolveCopilotCliPath,
   type CopilotSdkClient,
   type CopilotSdkSession,
@@ -218,7 +220,9 @@ const REASONING_EFFORTS: ReadonlyArray<CopilotReasoningEffort> = [
 
 /** What a turn needs set on the session: model, effort, Copilot's mode and allow-all. */
 interface CopilotSessionSettings {
-  readonly model: string;
+  readonly selectionModel: string;
+  readonly runtimeModel: string;
+  readonly autoTier: string | undefined;
   readonly reasoningEffort: CopilotReasoningEffort | undefined;
   readonly mode: CopilotMode;
   readonly allowAll: boolean;
@@ -229,6 +233,7 @@ function copilotSessionSettings(
   selection: ModelSelection,
   policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
 ): CopilotSessionSettings {
+  const parsed = parseCopilotModelSelection(selection.model);
   // Mode values are ACP URLs such as https://agentclientprotocol.com/protocol/session-modes#plan.
   const modeChoice = (
     getModelSelectionStringOptionValue(selection, "mode") ??
@@ -243,7 +248,9 @@ function copilotSessionSettings(
       getModelSelectionStringOptionValue(selection, "allow_all") ?? "",
     );
   return {
-    model: selection.model,
+    selectionModel: selection.model,
+    runtimeModel: parsed.runtimeModel,
+    autoTier: parsed.autoTier,
     reasoningEffort: REASONING_EFFORTS.find((candidate) => candidate === effort),
     mode:
       policy.interactionMode === "plan" || modeChoice === "plan"
@@ -607,7 +614,7 @@ export const makeCopilotSdkAdapterV2 = Effect.fn("makeCopilotSdkAdapterV2")(func
   const resolveCliPath = (spawn: AcpSpawnInput) =>
     resolveCopilotCliPath({
       command: spawn.command,
-      environment: { ...options.environment, ...spawn.env },
+      environment: copilotSdkRuntimeEnvironment({ ...options.environment, ...spawn.env }),
       platform,
       architecture,
       fileSystem,
@@ -640,7 +647,7 @@ export const makeCopilotSdkAdapterV2 = Effect.fn("makeCopilotSdkAdapterV2")(func
       const spawn = yield* options.resolveSpawn(cwd).pipe(Effect.mapError(openError));
       const cliPath = yield* resolveCliPath(spawn).pipe(Effect.mapError(openError));
       const environment = McpProviderSession.withAgentDeviceEnvironment(
-        { ...options.environment, ...spawn.env },
+        copilotSdkRuntimeEnvironment({ ...options.environment, ...spawn.env }),
         yield* mcpSessions.read(input.threadId),
       );
       const launchClient = Effect.gen(function* () {
@@ -2420,12 +2427,22 @@ export const makeCopilotSdkAdapterV2 = Effect.fn("makeCopilotSdkAdapterV2")(func
           return yield* protocolError("Open a new Copilot session to attach another thread");
         }
         const mcp = yield* mcpSessions.read(args.threadId);
-        const settings = copilotSessionSettings(args.modelSelection, args.runtimePolicy);
+        const settings = yield* Effect.try({
+          try: () => copilotSessionSettings(args.modelSelection, args.runtimePolicy),
+          catch: (cause) =>
+            protocolError(
+              cause instanceof Error ? cause.message : "Invalid Copilot model selection",
+              cause,
+            ),
+        });
         const epoch = ++sessionEpoch;
         // Without onPermissionRequest Copilot leaves requests pending as events with their ids.
         const config = {
           clientName: "t3-code",
-          model: settings.model,
+          model: settings.runtimeModel,
+          ...(settings.runtimeModel === "auto" && settings.autoTier !== undefined
+            ? { capi: { autoTier: settings.autoTier } }
+            : {}),
           ...(settings.reasoningEffort === undefined
             ? {}
             : { reasoningEffort: settings.reasoningEffort }),
@@ -2482,7 +2499,7 @@ export const makeCopilotSdkAdapterV2 = Effect.fn("makeCopilotSdkAdapterV2")(func
         // A resumed session may hold an older effort override; its first turn sets both again.
         applied =
           requestedId === undefined
-            ? { model: settings.model, reasoningEffort: settings.reasoningEffort }
+            ? { selectionModel: settings.selectionModel, reasoningEffort: settings.reasoningEffort }
             : {};
         const createdAt = yield* DateTime.now;
         const base = existing ?? previous;
@@ -2515,7 +2532,7 @@ export const makeCopilotSdkAdapterV2 = Effect.fn("makeCopilotSdkAdapterV2")(func
               createdAt,
               updatedAt: createdAt,
             };
-        providerSession = { ...providerSession, model: settings.model };
+        providerSession = { ...providerSession, model: settings.selectionModel };
         yield* emit({ type: "provider_thread.updated", driver: DRIVER, providerThread: thread });
         return thread;
       });
@@ -2563,18 +2580,24 @@ export const makeCopilotSdkAdapterV2 = Effect.fn("makeCopilotSdkAdapterV2")(func
           }
           // A configured plan model can come with the mode; the model switch below sets it back.
           applied = switched.modelChanged
-            ? { ...applied, mode: settings.mode, model: undefined, reasoningEffort: undefined }
+            ? {
+                ...applied,
+                mode: settings.mode,
+                selectionModel: undefined,
+                reasoningEffort: undefined,
+              }
             : { ...applied, mode: settings.mode };
         }
         if (
-          applied.model !== settings.model ||
+          applied.selectionModel !== settings.selectionModel ||
           applied.reasoningEffort !== settings.reasoningEffort
         ) {
-          applied = { ...applied, model: undefined, reasoningEffort: undefined };
+          applied = { ...applied, selectionModel: undefined, reasoningEffort: undefined };
           // null clears an effort override; an omitted effort would keep the previous one.
           const switched = yield* call("model switch", () =>
             target.rpc.model.switchTo({
-              modelId: settings.model,
+              modelId: settings.runtimeModel,
+              ...(settings.runtimeModel === "auto" ? { autoTier: settings.autoTier ?? null } : {}),
               reasoningEffort: settings.reasoningEffort ?? null,
               contextTier: CONTEXT_TIER,
             }),
@@ -2592,12 +2615,12 @@ export const makeCopilotSdkAdapterV2 = Effect.fn("makeCopilotSdkAdapterV2")(func
           // A deferred switch is queued ahead of the prompt but not applied yet.
           if (switched.deferred === true) {
             yield* Effect.logWarning("Copilot queued the model switch instead of applying it", {
-              model: settings.model,
+              model: settings.selectionModel,
             });
           } else {
             applied = {
               ...applied,
-              model: settings.model,
+              selectionModel: settings.selectionModel,
               reasoningEffort: settings.reasoningEffort,
             };
           }
@@ -2617,7 +2640,7 @@ export const makeCopilotSdkAdapterV2 = Effect.fn("makeCopilotSdkAdapterV2")(func
           applied = { ...applied, allowAll: settings.allowAll };
         }
         currentSettings = settings;
-        providerSession = { ...providerSession, model: settings.model };
+        providerSession = { ...providerSession, model: settings.selectionModel };
       });
       const prompt = Effect.fnUntraced(function* (
         message: ProviderAdapter.ProviderAdapterV2TurnMessage,
@@ -2738,7 +2761,14 @@ export const makeCopilotSdkAdapterV2 = Effect.fn("makeCopilotSdkAdapterV2")(func
       ) {
         const target = yield* idleSession(turnInput);
         const message = yield* prompt(turnInput.message);
-        const settings = copilotSessionSettings(turnInput.modelSelection, turnInput.runtimePolicy);
+        const settings = yield* Effect.try({
+          try: () => copilotSessionSettings(turnInput.modelSelection, turnInput.runtimePolicy),
+          catch: (cause) =>
+            protocolError(
+              cause instanceof Error ? cause.message : "Invalid Copilot model selection",
+              cause,
+            ),
+        });
         yield* applySettings(target, settings);
         const turn = yield* beginTurn(target, turnInput, settings.mode);
         // sendAndWait correlates completion with this request, waits out autopilot and background

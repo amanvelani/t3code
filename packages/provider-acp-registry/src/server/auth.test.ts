@@ -378,6 +378,9 @@ it.effect(
           return { isAuthenticated: true, login: "copilot-user" };
         },
         listModels: async () => [{ id: "m1", name: "Model 1" }],
+        getModelCatalog: async () => ({
+          models: [{ id: "m1", name: "Model 1", capabilities: {} }],
+        }),
       };
 
       const copilotSettings = decodeSettings({
@@ -439,6 +442,7 @@ it.effect("fails verification when Copilot SDK getAuthStatus reports unauthentic
       stop: async () => [],
       getAuthStatus: async () => ({ isAuthenticated: false }),
       listModels: async () => [],
+      getModelCatalog: async () => ({ models: [] }),
     };
 
     const copilotSettings = decodeSettings({

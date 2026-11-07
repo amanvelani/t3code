@@ -52,6 +52,7 @@ import {
   copilotClientProcess,
   copilotSdkCliCandidates,
   descendantPids,
+  encodeCopilotFusionModelId,
   resolveCopilotCliPath,
   scopedCopilotInspectionClient,
   stopProcessTree,
@@ -715,6 +716,9 @@ describe("CopilotSdkAdapterV2", () => {
           },
           getAuthStatus: async () => ({ isAuthenticated: true }),
           listModels: async () => [{ id: "m1", name: "Model 1" }],
+          getModelCatalog: async () => ({
+            models: [{ id: "m1", name: "Model 1", capabilities: {} }],
+          }),
         };
 
         // 1. Normal scope execution runs finalizer upon exit
@@ -2727,5 +2731,160 @@ describe("CopilotSdkAdapterV2", () => {
         }
       });
     }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect(
+    "configures runtime environment and routes Copilot Fusion tier create, switch, and reset",
+    () =>
+      Effect.gen(function* () {
+        const fake = yield* makeFakeCopilot();
+        const fusionHigh = encodeCopilotFusionModelId("hydrafusion");
+        const fusionMax = encodeCopilotFusionModelId("hydrafusion-max");
+
+        // 1. Session create with Fusion selection:
+        const harness = yield* makeHarness(fake, undefined, { PATH: "/usr/bin" });
+        // Launches must configure ELECTRON_RUN_AS_NODE and required feature flags
+        assert.strictEqual(fake.launches.length, 1);
+        const launchEnv = fake.launches[0]!.env;
+        assert.strictEqual(launchEnv?.ELECTRON_RUN_AS_NODE, "1");
+        assert.include(launchEnv?.COPILOT_CLI_ENABLED_FEATURE_FLAGS, "DYNAMIC_AUTO_TIERS");
+        assert.include(launchEnv?.COPILOT_CLI_ENABLED_FEATURE_FLAGS, "HYDRAFUSION_PLAN_V2");
+
+        // Now start turn with Fusion High on a new thread with Fusion High selection
+        const highInput = yield* turnInput(harness.providerThread, [], 1);
+        const highTurn = {
+          ...highInput,
+          modelSelection: { ...highInput.modelSelection, model: fusionHigh },
+        };
+        yield* harness.runtime.startTurn(highTurn);
+        // Switched to model 'auto' with autoTier 'hydrafusion'
+        assert.deepStrictEqual((yield* fake.takeCall("model.switchTo")).args, [
+          {
+            modelId: "auto",
+            autoTier: "hydrafusion",
+            reasoningEffort: null,
+            contextTier: "long_context",
+          },
+        ]);
+        yield* fake.takeCall("sendAndWait");
+        yield* fake.finishRun();
+        yield* harness.untilTerminal();
+
+        // 2. Turn 2: Switch between Fusion tiers (High -> Max) with underlying model remaining 'auto'
+        const maxInput = yield* turnInput(harness.providerThread, [], 2);
+        const maxTurn = {
+          ...maxInput,
+          modelSelection: { ...maxInput.modelSelection, model: fusionMax },
+        };
+        yield* harness.runtime.startTurn(maxTurn);
+        assert.deepStrictEqual((yield* fake.takeCall("model.switchTo")).args, [
+          {
+            modelId: "auto",
+            autoTier: "hydrafusion-max",
+            reasoningEffort: null,
+            contextTier: "long_context",
+          },
+        ]);
+        yield* fake.takeCall("sendAndWait");
+        yield* fake.finishRun();
+        yield* harness.untilTerminal();
+
+        // 3. Turn 3: Switch back to plain 'auto' resets tier via autoTier: null
+        const autoInput = yield* turnInput(harness.providerThread, [], 3);
+        const autoTurn = {
+          ...autoInput,
+          modelSelection: { ...autoInput.modelSelection, model: "auto" },
+        };
+        yield* harness.runtime.startTurn(autoTurn);
+        assert.deepStrictEqual((yield* fake.takeCall("model.switchTo")).args, [
+          {
+            modelId: "auto",
+            autoTier: null,
+            reasoningEffort: null,
+            contextTier: "long_context",
+          },
+        ]);
+        yield* fake.takeCall("sendAndWait");
+        yield* fake.finishRun();
+        yield* harness.untilTerminal();
+
+        // 4. Turn 4: Switch to ordinary model 'gpt-5.5' omits autoTier completely
+        const gptInput = yield* turnInput(harness.providerThread, [], 4);
+        const gptTurn = {
+          ...gptInput,
+          modelSelection: { ...gptInput.modelSelection, model: "gpt-5.5" },
+        };
+        yield* harness.runtime.startTurn(gptTurn);
+        assert.deepStrictEqual((yield* fake.takeCall("model.switchTo")).args, [
+          {
+            modelId: "gpt-5.5",
+            reasoningEffort: null,
+            contextTier: "long_context",
+          },
+        ]);
+        yield* fake.takeCall("sendAndWait");
+        yield* fake.finishRun();
+        yield* harness.untilTerminal();
+
+        // 5. Malformed selection must fail honestly and not silently route to arbitrary tier
+        const malformedInput = yield* turnInput(harness.providerThread, [], 5);
+        const malformedTurn = {
+          ...malformedInput,
+          modelSelection: {
+            ...malformedInput.modelSelection,
+            model: JSON.stringify({ model: "auto", autoTier: 123 }),
+          },
+        };
+        const malformedResult = yield* harness.runtime.startTurn(malformedTurn).pipe(Effect.result);
+        assert.strictEqual(malformedResult._tag, "Failure");
+
+        // 6. Cold resume with Fusion selection applies settings on first turn
+        const resumeFake = yield* makeFakeCopilot();
+        const now = yield* DateTime.now;
+        const driver = ProviderDriverKind.make("acpRegistry");
+        const existingThread: OrchestrationV2ProviderThread = {
+          id: (yield* IdAllocator.IdAllocatorV2).derive.providerThread({
+            driver,
+            providerInstanceId: INSTANCE_ID,
+            nativeThreadId: "copilot-native-resume",
+          }),
+          driver,
+          providerInstanceId: INSTANCE_ID,
+          providerSessionId: ProviderSessionId.make("session-copilot-resume"),
+          appThreadId: THREAD_ID,
+          ownerNodeId: null,
+          nativeThreadRef: {
+            driver,
+            nativeId: "copilot-native-resume",
+            strength: "strong",
+          },
+          nativeConversationHeadRef: null,
+          status: "idle",
+          firstRunOrdinal: 1,
+          lastRunOrdinal: 1,
+          handoffIds: [],
+          forkedFrom: null,
+          createdAt: now,
+          updatedAt: now,
+        };
+        const resumeHarness = yield* makeHarness(resumeFake, existingThread);
+        const coldTurn = yield* turnInput(resumeHarness.providerThread, [], 2);
+        const coldFusionTurn = {
+          ...coldTurn,
+          modelSelection: { ...coldTurn.modelSelection, model: fusionHigh },
+        };
+        yield* resumeHarness.runtime.startTurn(coldFusionTurn);
+        assert.deepStrictEqual((yield* resumeFake.takeCall("model.switchTo")).args, [
+          {
+            modelId: "auto",
+            autoTier: "hydrafusion",
+            reasoningEffort: null,
+            contextTier: "long_context",
+          },
+        ]);
+        yield* resumeFake.takeCall("sendAndWait");
+        yield* resumeFake.finishRun();
+        yield* resumeHarness.untilTerminal();
+      }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 });

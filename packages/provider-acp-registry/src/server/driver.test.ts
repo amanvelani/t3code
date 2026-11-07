@@ -598,9 +598,67 @@ describe("acpRegistrySnapshotReadiness", () => {
         stop: async () => {},
         getAuthStatus: async () => ({ isAuthenticated: true, login: "aman" }),
         listModels: async () => [
+          { id: "auto", name: "Auto" },
           { id: "claude-sonnet-4.5", name: "Claude 3.5 Sonnet" },
           { id: "gpt-4o", name: "GPT-4o" },
         ],
+        getModelCatalog: async () => ({
+          models: [
+            { id: "auto", name: "Auto" },
+            { id: "claude-sonnet-4.5", name: "Claude 3.5 Sonnet" },
+            { id: "gpt-4o", name: "GPT-4o" },
+          ],
+          auto: {
+            defaultTier: "balance",
+            tiers: [
+              {
+                id: "balance",
+                displayName: "Standard",
+                description: "Prioritizes versatile models for efficient everyday coding.",
+                type: "auto",
+                fusionTier: "standard",
+                status: { enabled: true, pickerVisible: true },
+              },
+              {
+                id: "hydrafusion",
+                displayName: "High",
+                description:
+                  "Prioritizes capable models for challenging tasks and deeper reasoning.",
+                type: "fusion",
+                fusionTier: "high",
+                status: { enabled: true, pickerVisible: true },
+              },
+              {
+                id: "hydrafusion-max",
+                displayName: "Max",
+                description:
+                  "Prioritizes the most capable models for the most demanding tasks and complex reasoning.",
+                type: "fusion",
+                fusionTier: "max",
+                status: { enabled: true, pickerVisible: true },
+              },
+              {
+                id: "fast",
+                displayName: "Fast",
+                type: "auto",
+                status: { enabled: true, pickerVisible: false },
+              },
+              {
+                id: "disabled-tier",
+                displayName: "Disabled",
+                type: "fusion",
+                fusionTier: "disabled",
+                status: { enabled: false, pickerVisible: true },
+              },
+              {
+                id: "unknown-type",
+                displayName: "Unknown Type",
+                type: "other",
+                status: { enabled: true, pickerVisible: true },
+              },
+            ],
+          },
+        }),
       } as unknown as CopilotSdkInspectionClient;
 
       const result = yield* probeAcpRegistryConfiguration(
@@ -635,11 +693,29 @@ describe("acpRegistrySnapshotReadiness", () => {
       expect(result.probe).toMatchObject({
         ready: true,
         models: [
+          { id: "auto", name: "Auto", description: null },
+          {
+            id: '{"model":"auto","autoTier":"balance"}',
+            name: "Copilot Fusion Standard",
+            description: "Prioritizes versatile models for efficient everyday coding.",
+          },
+          {
+            id: '{"model":"auto","autoTier":"hydrafusion"}',
+            name: "Copilot Fusion High",
+            description: "Prioritizes capable models for challenging tasks and deeper reasoning.",
+          },
+          {
+            id: '{"model":"auto","autoTier":"hydrafusion-max"}',
+            name: "Copilot Fusion Max",
+            description:
+              "Prioritizes the most capable models for the most demanding tasks and complex reasoning.",
+          },
           { id: "claude-sonnet-4.5", name: "Claude 3.5 Sonnet", description: null },
           { id: "gpt-4o", name: "GPT-4o", description: null },
         ],
-        currentModelId: "claude-sonnet-4.5",
+        currentModelId: "auto",
       });
+      expect(result.probe.models).toHaveLength(6);
     }),
   );
 
@@ -693,7 +769,7 @@ describe("acpRegistrySnapshotReadiness", () => {
   );
 
   it.effect(
-    "probes Copilot SDK and surfaces error when listModels throws (does not fabricate Auto)",
+    "probes Copilot SDK and surfaces error when getModelCatalog throws (does not fabricate Auto)",
     () =>
       Effect.gen(function* () {
         const settings = decodeSettings({ agentId: "github-copilot-cli", copilotSdk: true });
@@ -702,6 +778,9 @@ describe("acpRegistrySnapshotReadiness", () => {
           stop: async () => [],
           getAuthStatus: async () => ({ isAuthenticated: true }),
           listModels: async () => {
+            throw new Error("Failed to list models");
+          },
+          getModelCatalog: async () => {
             throw new Error("Failed to list models");
           },
         } as unknown as CopilotSdkInspectionClient;
@@ -742,7 +821,7 @@ describe("acpRegistrySnapshotReadiness", () => {
   );
 
   it.effect(
-    "probes Copilot SDK and surfaces error when listModels returns empty (does not fabricate Auto)",
+    "probes Copilot SDK and surfaces error when getModelCatalog returns empty (does not fabricate Auto)",
     () =>
       Effect.gen(function* () {
         const settings = decodeSettings({ agentId: "github-copilot-cli", copilotSdk: true });
@@ -751,6 +830,7 @@ describe("acpRegistrySnapshotReadiness", () => {
           stop: async () => [],
           getAuthStatus: async () => ({ isAuthenticated: true }),
           listModels: async () => [],
+          getModelCatalog: async () => ({ models: [] }),
         } as unknown as CopilotSdkInspectionClient;
 
         const result = yield* probeAcpRegistryConfiguration(
@@ -797,6 +877,7 @@ describe("acpRegistrySnapshotReadiness", () => {
         stop: async () => [],
         getAuthStatus: async () => ({ isAuthenticated: true }),
         listModels: async () => [{ id: "m1", name: "Model 1" }],
+        getModelCatalog: async () => ({ models: [{ id: "m1", name: "Model 1" }] }),
       } as unknown as CopilotSdkInspectionClient;
 
       yield* probeAcpRegistryConfiguration(

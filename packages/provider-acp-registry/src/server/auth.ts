@@ -19,6 +19,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as AcpSchema from "effect-acp/compat";
 
 import {
+  copilotSdkRuntimeEnvironment,
   makeCopilotSdkClient,
   resolveCopilotCliPath,
   scopedCopilotInspectionClient,
@@ -283,11 +284,10 @@ export const makeAcpRegistryAuth = Effect.fn("makeAcpRegistryAuth")(function* (o
           const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem);
           const spawner = yield* Effect.serviceOption(ChildProcessSpawner.ChildProcessSpawner);
 
-          const effectiveEnvironment = {
+          const effectiveEnvironment = copilotSdkRuntimeEnvironment({
             ...options.environment,
             ...resolved.spawn.env,
-            ELECTRON_RUN_AS_NODE: "1",
-          };
+          });
 
           const cliPath = yield* resolveCopilotCliPath({
             command: resolved.spawn.command,

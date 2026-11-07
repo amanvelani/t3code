@@ -26,6 +26,8 @@ import type * as EffectAcpSchema from "effect-acp/compat";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import {
+  buildCopilotDiscoveredModels,
+  copilotSdkRuntimeEnvironment,
   makeCopilotSdkClient,
   resolveCopilotCliPath,
   scopedCopilotInspectionClient,
@@ -347,11 +349,10 @@ const probeCopilotSdkConfiguration = Effect.fn("AcpRegistryProbe.probeCopilotSdk
     const platform = yield* HostProcess.Platform;
     const architecture = yield* HostProcess.Architecture;
 
-    const effectiveEnvironment = {
+    const effectiveEnvironment = copilotSdkRuntimeEnvironment({
       ...input.environment,
       ...resolved.spawn.env,
-      ELECTRON_RUN_AS_NODE: "1",
-    };
+    });
 
     const cliPath = yield* resolveCopilotCliPath({
       command: resolved.spawn.command,
@@ -441,8 +442,8 @@ const probeCopilotSdkConfiguration = Effect.fn("AcpRegistryProbe.probeCopilotSdk
           });
         }
 
-        const modelsList = yield* Effect.tryPromise({
-          try: () => client.listModels(),
+        const catalog = yield* Effect.tryPromise({
+          try: () => client.getModelCatalog(),
           catch: (cause) =>
             new AcpRegistryOperationError({
               reason: "probe_failed",
@@ -462,11 +463,7 @@ const probeCopilotSdkConfiguration = Effect.fn("AcpRegistryProbe.probeCopilotSdk
           }),
         );
 
-        const models = modelsList.map((m) => ({
-          id: m.id,
-          name: m.name || m.id,
-          description: null,
-        }));
+        const models = buildCopilotDiscoveredModels(catalog);
 
         if (models.length === 0) {
           return yield* new AcpRegistryOperationError({

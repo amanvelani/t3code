@@ -25,6 +25,11 @@ provider. It uses the GitHub Copilot SDK integration by default, providing live 
 a turn, subagent child threads, token usage tracking, and system instructions that survive compaction,
 while sharing your local Copilot CLI authentication and model discovery.
 
+When supported by your Copilot runtime and account, dynamic Copilot Fusion routing tiers
+(such as Standard, High, or Max) appear in the model picker alongside standard models. Selecting
+a Fusion tier routes requests through Copilot's Auto routing at the chosen capability level.
+If your account or runtime does not advertise Fusion tiers, only the standard Auto and catalog models are shown.
+
 Existing Copilot instances configured via the ACP Registry continue to work and can toggle
 **Use Copilot SDK** in their provider settings to switch between the SDK integration and standard ACP.
 Changing this setting restarts the provider, so finish running turns first.

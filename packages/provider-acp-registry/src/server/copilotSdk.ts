@@ -12,11 +12,23 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import type * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { AcpRegistryOperationError } from "@t3tools/contracts";
 import type {
+  CopilotClient,
   CopilotSession,
   MessageOptions,
   ResumeSessionConfig,
   SessionConfig,
 } from "@github/copilot-sdk";
+
+export type CopilotSdkModelCatalog = Awaited<ReturnType<CopilotClient["rpc"]["models"]["list"]>>;
+
+export {
+  copilotSdkRuntimeEnvironment,
+  buildCopilotDiscoveredModels,
+  parseCopilotModelSelection,
+  encodeCopilotFusionModelId,
+  type CopilotParsedModelSelection,
+  type DiscoveredCopilotModel,
+} from "./copilotModel.ts";
 
 /** The part of a Copilot SDK session the adapter drives; tests replace it with a fake. */
 export interface CopilotSdkSession {
@@ -67,6 +79,7 @@ export interface CopilotSdkClient {
       readonly supportedReasoningEfforts?: ReadonlyArray<string>;
     }>
   >;
+  readonly getModelCatalog?: () => Promise<CopilotSdkModelCatalog>;
   /**
    * The Copilot process, so T3 can see it exit and stop its whole process tree. Undefined until
    * start() spawned it; once read, kept, since a failed stop() clears the SDK's own field.
@@ -89,7 +102,7 @@ export interface CopilotSdkInspectionClient {
     readonly version: string;
     readonly protocolVersion: number;
   }>;
-  readonly listModels: () => Promise<
+  readonly listModels?: () => Promise<
     ReadonlyArray<{
       readonly id: string;
       readonly name: string;
@@ -97,6 +110,7 @@ export interface CopilotSdkInspectionClient {
       readonly supportedReasoningEfforts?: ReadonlyArray<string>;
     }>
   >;
+  readonly getModelCatalog: () => Promise<CopilotSdkModelCatalog>;
   readonly process?: CopilotProcess | undefined;
 }
 
@@ -362,6 +376,7 @@ export const makeCopilotSdkClient: MakeCopilotSdkClient & MakeCopilotSdkInspecti
     getAuthStatus: () => client.getAuthStatus(),
     getStatus: () => client.getStatus(),
     listModels: () => client.listModels(),
+    getModelCatalog: () => client.rpc.models.list({}),
     get process() {
       tracked ??= copilotClientProcess(client);
       return tracked;
