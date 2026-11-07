@@ -251,7 +251,10 @@ function copilotSessionSettings(
     selectionModel: selection.model,
     runtimeModel: parsed.runtimeModel,
     autoTier: parsed.autoTier,
-    reasoningEffort: REASONING_EFFORTS.find((candidate) => candidate === effort),
+    reasoningEffort:
+      parsed.runtimeModel === "auto"
+        ? undefined
+        : REASONING_EFFORTS.find((candidate) => candidate === effort),
     mode:
       policy.interactionMode === "plan" || modeChoice === "plan"
         ? "plan"
@@ -2593,12 +2596,13 @@ export const makeCopilotSdkAdapterV2 = Effect.fn("makeCopilotSdkAdapterV2")(func
           applied.reasoningEffort !== settings.reasoningEffort
         ) {
           applied = { ...applied, selectionModel: undefined, reasoningEffort: undefined };
-          // null clears an effort override; an omitted effort would keep the previous one.
+          // Auto/Fusion chooses reasoning internally and rejects even a null override.
           const switched = yield* call("model switch", () =>
             target.rpc.model.switchTo({
               modelId: settings.runtimeModel,
-              ...(settings.runtimeModel === "auto" ? { autoTier: settings.autoTier ?? null } : {}),
-              reasoningEffort: settings.reasoningEffort ?? null,
+              ...(settings.runtimeModel === "auto"
+                ? { autoTier: settings.autoTier ?? null }
+                : { reasoningEffort: settings.reasoningEffort ?? null }),
               contextTier: CONTEXT_TIER,
             }),
           );

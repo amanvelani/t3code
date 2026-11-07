@@ -2743,7 +2743,10 @@ describe("CopilotSdkAdapterV2", () => {
         const fusionMax = encodeCopilotFusionModelId("hydrafusion-max");
 
         // 1. Session create with Fusion selection:
-        const initialSelection = { ...selection(), model: fusionHigh };
+        const initialSelection = {
+          ...selection([{ id: "reasoning_effort", value: "high" }]),
+          model: fusionHigh,
+        };
         const harness = yield* makeHarness(
           fake,
           undefined,
@@ -2752,6 +2755,7 @@ describe("CopilotSdkAdapterV2", () => {
           initialSelection,
         );
         assert.deepInclude(fake.config(), { model: "auto", capi: { autoTier: "hydrafusion" } });
+        assert.notProperty(fake.config(), "reasoningEffort");
         // Launches must configure ELECTRON_RUN_AS_NODE and required feature flags
         assert.strictEqual(fake.launches.length, 1);
         const launchEnv = fake.launches[0]!.env;
@@ -2781,7 +2785,6 @@ describe("CopilotSdkAdapterV2", () => {
           {
             modelId: "auto",
             autoTier: "hydrafusion-max",
-            reasoningEffort: null,
             contextTier: "long_context",
           },
         ]);
@@ -2800,7 +2803,6 @@ describe("CopilotSdkAdapterV2", () => {
           {
             modelId: "auto",
             autoTier: null,
-            reasoningEffort: null,
             contextTier: "long_context",
           },
         ]);
@@ -2888,7 +2890,6 @@ describe("CopilotSdkAdapterV2", () => {
           {
             modelId: "auto",
             autoTier: "hydrafusion",
-            reasoningEffort: null,
             contextTier: "long_context",
           },
         ]);
