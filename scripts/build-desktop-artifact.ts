@@ -3574,6 +3574,9 @@ export const validateWindowsPackagedPayload = Effect.fn(
 
   const fileCount = yield* countPayloadFiles(packagedAppDir);
   if (fileCount > fileLimit) {
+    yield* Effect.logError("Windows packaged payload exceeds its file budget", {
+      entries: yield* fs.readDirectory(packagedAppDir, { recursive: true }),
+    });
     return yield* new WindowsPackagedPayloadValidationError({
       reason: "file-limit-exceeded",
       packagedAppDir,
