@@ -781,7 +781,7 @@ export class WindowsPackagedPayloadValidationError extends Schema.TaggedError<Wi
 ) {
   override get message(): string {
     if (this.reason === "file-limit-exceeded") {
-      return `Windows packaged payload contains ${String(this.fileCount)} files; expected at most ${String(this.fileLimit)}.`;
+      return `Windows packaged runtime contains ${String(this.fileCount)} files excluding prepared bytecode; expected at most ${String(this.fileLimit)}.`;
     }
     if (this.reason === "unpacked-native-missing") {
       return `Windows server sidecar is missing ${String(this.missingFiles?.length ?? 0)} unpacked native files.`;
@@ -3572,10 +3572,15 @@ export const validateWindowsPackagedPayload = Effect.fn(
     }
   }
 
-  const fileCount = yield* countPayloadFiles(packagedAppDir);
+  const compileCacheDir = path.join(resourcesDir, "server-compile-cache");
+  const compileCacheFileCount = (yield* fs.exists(compileCacheDir))
+    ? yield* countPayloadFiles(compileCacheDir)
+    : 0;
+  // Prepared bytecode adds one file per bundle chunk, independently of the runtime payload.
+  const fileCount = (yield* countPayloadFiles(packagedAppDir)) - compileCacheFileCount;
   if (fileCount > fileLimit) {
     yield* Effect.logError("Windows packaged payload exceeds its file budget", {
-      entries: yield* fs.readDirectory(packagedAppDir, { recursive: true }),
+      entries: (yield* fs.readDirectory(packagedAppDir, { recursive: true })).join("\n"),
     });
     return yield* new WindowsPackagedPayloadValidationError({
       reason: "file-limit-exceeded",
@@ -3594,9 +3599,9 @@ export const validateWindowsPackagedPayload = Effect.fn(
   });
 
   yield* Effect.log(
-    `[desktop-artifact] Validated Windows payload (${String(fileCount)} files, ${String(unpackedFiles.length)} sidecar natives).`,
+    `[desktop-artifact] Validated Windows payload (${String(fileCount)} runtime files, ${String(compileCacheFileCount)} prepared bytecode files, ${String(unpackedFiles.length)} sidecar natives).`,
   );
-  return { packagedAppDir, fileCount, unpackedFiles } as const;
+  return { packagedAppDir, fileCount, compileCacheFileCount, unpackedFiles } as const;
 });
 
 export class MacPackagedAppMissingError extends Schema.TaggedError<MacPackagedAppMissingError>()(
