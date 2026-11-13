@@ -123,7 +123,7 @@ const content = Effect.gen(function* () {
   };
 });
 
-it.effect.each([65, 74, 75, 76, 77, 78, 79, 80, 81, 82])(
+it.effect.each([65, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90])(
   "upgrades fork ledger at %s without losing existing content",
   (through) =>
     Effect.gen(function* () {
@@ -144,44 +144,45 @@ it.effect.each([65, 74, 75, 76, 77, 78, 79, 80, 81, 82])(
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
 
-it.effect.each([57, 62, 65, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80])(
-  "upgrades official history through %s once and preserves content",
-  (through) =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* seedOfficial(through);
-      yield* seedContent;
-      const before = yield* content;
-      const ledger = yield* sql<{ migration_id: number; name: string; created_at: string }>`
+it.effect.each([
+  57, 62, 65, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87,
+  88,
+])("upgrades official history through %s once and preserves content", (through) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* seedOfficial(through);
+    yield* seedContent;
+    const before = yield* content;
+    const ledger = yield* sql<{ migration_id: number; name: string; created_at: string }>`
       SELECT * FROM effect_sql_migrations WHERE migration_id >= 57 ORDER BY migration_id
     `;
-      yield* runMigrations();
-      assert.deepStrictEqual(yield* content, before);
-      const migrated = yield* sql<{ migration_id: number; name: string; created_at: string }>`
+    yield* runMigrations();
+    assert.deepStrictEqual(yield* content, before);
+    const migrated = yield* sql<{ migration_id: number; name: string; created_at: string }>`
       SELECT * FROM effect_sql_migrations WHERE migration_id BETWEEN 59 AND ${through + 2}
       ORDER BY migration_id
     `;
-      assert.deepStrictEqual(
-        migrated,
-        ledger.map((row) => ({ ...row, migration_id: row.migration_id + 2 })),
-      );
-      assert.deepStrictEqual(
-        (yield* sql<{
-          migration_id: number;
-          name: string;
-        }>`SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id`).map(
-          (row) => [row.migration_id, row.name] as const,
-        ),
-        migrationManifest,
-      );
-      assert.deepStrictEqual(yield* sql`SELECT client_ip_address, client_os FROM auth_sessions`, [
-        { client_ip_address: null, client_os: null },
-      ]);
-      assert.deepStrictEqual(yield* sql`SELECT reusable FROM auth_pairing_links`, []);
-      assert.deepStrictEqual(yield* runMigrations(), []);
-      assert.deepStrictEqual(yield* sql`PRAGMA integrity_check`, [{ integrity_check: "ok" }]);
-      assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
-    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+    assert.deepStrictEqual(
+      migrated,
+      ledger.map((row) => ({ ...row, migration_id: row.migration_id + 2 })),
+    );
+    assert.deepStrictEqual(
+      (yield* sql<{
+        migration_id: number;
+        name: string;
+      }>`SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id`).map(
+        (row) => [row.migration_id, row.name] as const,
+      ),
+      migrationManifest,
+    );
+    assert.deepStrictEqual(yield* sql`SELECT client_ip_address, client_os FROM auth_sessions`, [
+      { client_ip_address: null, client_os: null },
+    ]);
+    assert.deepStrictEqual(yield* sql`SELECT reusable FROM auth_pairing_links`, []);
+    assert.deepStrictEqual(yield* runMigrations(), []);
+    assert.deepStrictEqual(yield* sql`PRAGMA integrity_check`, [{ integrity_check: "ok" }]);
+    assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
+  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
 
 it.effect.each(["unknown", "gap", "future"])(
