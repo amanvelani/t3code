@@ -1,9 +1,4 @@
-import {
-  EnvironmentId,
-  ProviderDriverKind,
-  type AcpRegistrySearchAgent,
-  type ManagedPolicySummary,
-} from "@t3tools/contracts";
+import { EnvironmentId, ProviderDriverKind, type AcpRegistrySearchAgent } from "@t3tools/contracts";
 import { userEvent } from "vite-plus/test/browser";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -13,7 +8,6 @@ const actions = vi.hoisted(() => ({
   toast: vi.fn(),
   onOpenChange: vi.fn(),
   canManageProviders: true,
-  managedPolicy: undefined as ManagedPolicySummary | undefined,
 }));
 const settingsHooks = vi.hoisted(() => ({
   read: vi.fn(() => ({ providerInstances: {} })),
@@ -33,14 +27,6 @@ const preparedAgent = vi.hoisted((): AcpRegistrySearchAgent => ({
   distribution: "binary",
   integrity: "sha256",
 }));
-
-vi.mock(import("../../state/managedPolicy"), async (original) => {
-  const actual = await original();
-  return {
-    ...actual,
-    useManagedPolicy: () => actions.managedPolicy,
-  };
-});
 
 vi.mock(import("@t3tools/client-runtime/state/runtime"), async (original) => ({
   ...(await original()),
@@ -155,7 +141,6 @@ async function prepareCodexInstance() {
 
 function setup() {
   actions.canManageProviders = true;
-  actions.managedPolicy = undefined;
   actions.toast.mockReset();
   actions.onOpenChange.mockReset();
   settingsHooks.read.mockReset().mockReturnValue({ providerInstances: {} });
@@ -319,62 +304,5 @@ describe("AddProviderInstanceDialog environment routing", () => {
     expect(actions.onOpenChange).not.toHaveBeenCalled();
     await screen.rerender(dialog());
     expect(button("Add instance").disabled).toBe(true);
-  });
-
-  it("exposes GitHub Copilot directly in featured providers and transitions to sign-in", async () => {
-    setup();
-    await using _screen = await render(dialog());
-    expect(radio("GitHub Copilot")).toBeDefined();
-
-    await act(async () => radio("GitHub Copilot")!.click());
-    await click("Next");
-    expect(document.body.textContent).toContain("Shown in the provider list.");
-    await click("Continue to sign-in");
-
-    expect(settingsHooks.mutate).toHaveBeenCalledWith({
-      operation: "create",
-      instanceId: "copilot",
-      instance: {
-        driver: ProviderDriverKind.make("acpRegistry"),
-        enabled: true,
-        displayName: "GitHub Copilot",
-        config: {
-          agentId: "github-copilot-cli",
-          copilotSdk: true,
-          distribution: "auto",
-        },
-      },
-    });
-    expect(signInStep()?.textContent).toContain("remote-device/copilot");
-  });
-
-  it("filters out GitHub Copilot when acpRegistry is disallowed by managed policy", async () => {
-    setup();
-    actions.managedPolicy = {
-      organization: "Acme",
-      lockedSettings: [],
-      limits: {
-        providers: {
-          allowedDrivers: [ProviderDriverKind.make("codex")],
-        },
-      },
-    };
-    await using _screen = await render(dialog());
-    expect(radio("GitHub Copilot")).toBeUndefined();
-  });
-
-  it("permits GitHub Copilot when acpRegistry is allowed by managed policy", async () => {
-    setup();
-    actions.managedPolicy = {
-      organization: "Acme",
-      lockedSettings: [],
-      limits: {
-        providers: {
-          allowedDrivers: [ProviderDriverKind.make("acpRegistry")],
-        },
-      },
-    };
-    await using _screen = await render(dialog());
-    expect(radio("GitHub Copilot")).toBeDefined();
   });
 });

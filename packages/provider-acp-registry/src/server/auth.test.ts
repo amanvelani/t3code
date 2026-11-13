@@ -15,7 +15,6 @@ import { AcpRequestError } from "effect-acp/errors";
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 import { makeAcpRegistryAuth } from "./auth.ts";
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
-import type { CopilotSdkInspectionClient } from "./copilotSdk.ts";
 import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 
 const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
@@ -62,10 +61,6 @@ const makeHarness = (
   failVerification = false,
   settings = decodeSettings({ agentId: "test-agent" }),
   providerInstanceId = instanceId,
-  copilotOptions?: {
-    readonly makeRuntimeShouldFail?: boolean;
-    readonly mockInspectionClient?: CopilotSdkInspectionClient;
-  },
 ) =>
   Effect.gen(function* () {
     const verify = yield* Deferred.make<void>();
@@ -91,68 +86,63 @@ const makeHarness = (
         Effect.sync(() => {
           changed.push(value);
         }),
-      ...(copilotOptions?.mockInspectionClient
-        ? { makeCopilotSdkClient: () => Promise.resolve(copilotOptions.mockInspectionClient!) }
-        : {}),
-      makeRuntime: copilotOptions?.makeRuntimeShouldFail
-        ? () => Effect.die("makeRuntime must not be touched for Copilot SDK sign-in")
-        : () =>
-            Effect.gen(function* () {
-              const id = ++runtimes;
-              yield* Effect.addFinalizer(() =>
-                Effect.sync(() => {
-                  closed.push(id);
-                }),
-              );
-              const initialized: AcpSchema.InitializeResponse = {
-                protocolVersion: 2,
-                agentCapabilities: {},
-                authMethods: [{ ...method, name: `${method.name} ${version}` }],
-              };
-              let elicitation:
-                | Parameters<AcpSessionRuntime.AcpSessionRuntime["Service"]["handleElicitation"]>[0]
-                | undefined;
-              return {
-                initialize: () => Effect.succeed(initialized),
-                handleElicitation: (handler) =>
-                  Effect.sync(() => {
-                    elicitation = handler;
-                  }),
-                authenticate: (methodId) =>
-                  Effect.gen(function* () {
-                    authenticated.push(methodId);
-                    if (elicitation)
-                      yield* elicitation(
-                        {
-                          mode: "url",
-                          url: "https://example.com/login",
-                          elicitationId: "consent",
-                          requestId: "login",
-                          message: "Sign in",
-                        },
-                        { requestId: "login", method: "elicitation/create" },
-                      );
-                  }),
-                start: () =>
-                  Effect.gen(function* () {
-                    started.push(id);
-                    yield* Deferred.await(verify);
-                    if (failVerification)
-                      return yield* new AcpRequestError({
-                        method: "session/new",
-                        code: -32000,
-                        errorMessage: "Authentication required",
-                      });
-                    return {
-                      sessionId: "verified",
-                      initializeResult: initialized,
-                      sessionSetupResult: { sessionId: "verified" },
-                      modelConfigId: undefined,
-                    };
-                  }),
-                logout: Effect.succeed({}),
-              };
+      makeRuntime: () =>
+        Effect.gen(function* () {
+          const id = ++runtimes;
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => {
+              closed.push(id);
             }),
+          );
+          const initialized: AcpSchema.InitializeResponse = {
+            protocolVersion: 2,
+            agentCapabilities: {},
+            authMethods: [{ ...method, name: `${method.name} ${version}` }],
+          };
+          let elicitation:
+            | Parameters<AcpSessionRuntime.AcpSessionRuntime["Service"]["handleElicitation"]>[0]
+            | undefined;
+          return {
+            initialize: () => Effect.succeed(initialized),
+            handleElicitation: (handler) =>
+              Effect.sync(() => {
+                elicitation = handler;
+              }),
+            authenticate: (methodId) =>
+              Effect.gen(function* () {
+                authenticated.push(methodId);
+                if (elicitation)
+                  yield* elicitation(
+                    {
+                      mode: "url",
+                      url: "https://example.com/login",
+                      elicitationId: "consent",
+                      requestId: "login",
+                      message: "Sign in",
+                    },
+                    { requestId: "login", method: "elicitation/create" },
+                  );
+              }),
+            start: () =>
+              Effect.gen(function* () {
+                started.push(id);
+                yield* Deferred.await(verify);
+                if (failVerification)
+                  return yield* new AcpRequestError({
+                    method: "session/new",
+                    code: -32000,
+                    errorMessage: "Authentication required",
+                  });
+                return {
+                  sessionId: "verified",
+                  initializeResult: initialized,
+                  sessionSetupResult: { sessionId: "verified" },
+                  modelConfigId: undefined,
+                };
+              }),
+            logout: Effect.succeed({}),
+          };
+        }),
     }).pipe(
       Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, {
         ...catalog,
@@ -355,126 +345,5 @@ it.effect("does not report authentication when post-login verification fails", (
     yield* h.phase("failed");
     assert.deepEqual(h.changed, []);
     assert.isTrue(h.killed());
-  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
-);
-
-it.effect(
-  "runs Copilot SDK terminal sign-in, verifies auth status, and updates status without touching makeRuntime",
-  () =>
-    Effect.gen(function* () {
-      let clientStarted = false;
-      let clientStopped = false;
-      let getAuthStatusCalled = false;
-      const mockInspectionClient: CopilotSdkInspectionClient = {
-        start: async () => {
-          clientStarted = true;
-        },
-        stop: async () => {
-          clientStopped = true;
-          return [];
-        },
-        getAuthStatus: async () => {
-          getAuthStatusCalled = true;
-          return { isAuthenticated: true, login: "copilot-user" };
-        },
-        listModels: async () => [{ id: "m1", name: "Model 1" }],
-        getModelCatalog: async () => ({
-          models: [{ id: "m1", name: "Model 1", capabilities: {} }],
-        }),
-      };
-
-      const copilotSettings = decodeSettings({
-        agentId: "github-copilot-cli",
-        copilotSdk: true,
-      });
-
-      const h = yield* makeHarness(terminalMethod, false, copilotSettings, instanceId, {
-        makeRuntimeShouldFail: true,
-        mockInspectionClient,
-      });
-
-      yield* h.controller.start("owner", Effect.void, "copilot-login");
-      yield* h.phase("waiting");
-      assert.deepEqual(h.terminalSpawn(), {
-        shell: "/managed/agent",
-        args: ["login"],
-        cwd: "/workspace",
-        cols: 80,
-        rows: 24,
-        env: {
-          PATH: "/tools",
-          OVERRIDE: "spawn",
-          AGENT_HOME: "/custom/home",
-        },
-      });
-
-      h.exit(0);
-      yield* h.phase("verifying");
-      yield* h.phase("succeeded");
-      assert.isTrue(clientStarted);
-      assert.isTrue(getAuthStatusCalled);
-      assert.isTrue(clientStopped);
-      assert.deepEqual(h.changed, [true]);
-    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
-);
-
-it.effect("rejects unsupported method id for Copilot SDK without touching makeRuntime", () =>
-  Effect.gen(function* () {
-    const copilotSettings = decodeSettings({
-      agentId: "github-copilot-cli",
-      copilotSdk: true,
-    });
-
-    const h = yield* makeHarness(terminalMethod, false, copilotSettings, instanceId, {
-      makeRuntimeShouldFail: true,
-    });
-
-    yield* h.controller.start("owner", Effect.void, "unsupported-method");
-    yield* h.phase("failed");
-    assert.deepEqual(h.changed, []);
-  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
-);
-
-it.effect("fails verification when Copilot SDK getAuthStatus reports unauthenticated", () =>
-  Effect.gen(function* () {
-    const mockInspectionClient: CopilotSdkInspectionClient = {
-      start: async () => {},
-      stop: async () => [],
-      getAuthStatus: async () => ({ isAuthenticated: false }),
-      listModels: async () => [],
-      getModelCatalog: async () => ({ models: [] }),
-    };
-
-    const copilotSettings = decodeSettings({
-      agentId: "github-copilot-cli",
-      copilotSdk: true,
-    });
-
-    const h = yield* makeHarness(terminalMethod, false, copilotSettings, instanceId, {
-      makeRuntimeShouldFail: true,
-      mockInspectionClient,
-    });
-
-    yield* h.controller.start("owner", Effect.void, "copilot-login");
-    yield* h.phase("waiting");
-    h.exit(0);
-    yield* h.phase("failed");
-    assert.deepEqual(h.changed, []);
-  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
-);
-
-it.effect("Copilot SDK logout rejects with unsupported without touching makeRuntime", () =>
-  Effect.gen(function* () {
-    const copilotSettings = decodeSettings({
-      agentId: "github-copilot-cli",
-      copilotSdk: true,
-    });
-
-    const h = yield* makeHarness(terminalMethod, false, copilotSettings, instanceId, {
-      makeRuntimeShouldFail: true,
-    });
-
-    const result = yield* h.controller.logout(Effect.void).pipe(Effect.result);
-    assert.strictEqual(result._tag, "Failure");
   }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

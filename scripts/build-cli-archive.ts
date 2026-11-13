@@ -42,7 +42,6 @@ const WorkspaceConfig = Schema.Struct({
   overrides: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   patchedDependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   allowBuilds: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)),
-  ignoredOptionalDependencies: Schema.optional(Schema.Array(Schema.String)),
 });
 const decodeWorkspaceConfig = Schema.decodeEffect(fromYaml(WorkspaceConfig));
 const encodeJsonString = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
@@ -53,7 +52,6 @@ const StageWorkspaceConfig = Schema.Struct({
     libc: Schema.optional(Schema.Array(Schema.String)),
   }),
   allowBuilds: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)),
-  ignoredOptionalDependencies: Schema.optional(Schema.Array(Schema.String)),
   patchedDependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   overrides: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   nodeLinker: Schema.optional(Schema.Literals(["hoisted"])),
@@ -184,9 +182,6 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
         platform: input.platform,
         arch: input.arch,
         ...(workspace.allowBuilds ? { allowBuilds: workspace.allowBuilds } : {}),
-        ...(workspace.ignoredOptionalDependencies
-          ? { ignoredOptionalDependencies: workspace.ignoredOptionalDependencies }
-          : {}),
         patchedDependencies,
         overrides: resolveCatalogDependencies(workspace.overrides ?? {}, catalog, "apps/server"),
       }),

@@ -37,8 +37,6 @@ describe("shouldBundleCliDependency", () => {
       "@yuuang/ffi-rs-win32-x64-msvc",
       "@ff-labs/fff-node",
       "@napi-rs/keyring",
-      "@github/copilot-sdk",
-      "vscode-jsonrpc",
       "transcribe-cpp",
       "@transcribe-cpp/win32-x64-cpu-vulkan",
       "koffi",

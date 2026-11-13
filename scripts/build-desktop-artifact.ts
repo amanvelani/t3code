@@ -1004,7 +1004,6 @@ export const DESKTOP_FILE_EXCLUSIONS = [
   "!apps/desktop/prod-resources/cursor-sdk/**/*",
   // Installed agent CLIs are supplied separately; retain SDK JavaScript and exclude bundled runtimes.
   "!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
-  "!**/node_modules/@github/copilot-sdk-*/**/*",
   // Desktop targets are 64-bit; ffi-rs chooses this binding only under process.arch === "ia32".
   "!**/node_modules/@yuuang/ffi-rs-win32-ia32-msvc/**/*",
   // The monitor is already copied to resources/resource-monitor through extraResources.
@@ -1063,8 +1062,6 @@ export const WINDOWS_SERVER_ASAR_IGNORE_GLOBS = [
   "**/node_modules/@cursor/sdk-*/**",
   "**/node_modules/@anthropic-ai/claude-agent-sdk-*",
   "**/node_modules/@anthropic-ai/claude-agent-sdk-*/**",
-  "**/node_modules/@github/copilot-sdk-*",
-  "**/node_modules/@github/copilot-sdk-*/**",
   "**/node_modules/@yuuang/ffi-rs-win32-ia32-msvc",
   "**/node_modules/@yuuang/ffi-rs-win32-ia32-msvc/**",
   "**/node_modules/.bin",

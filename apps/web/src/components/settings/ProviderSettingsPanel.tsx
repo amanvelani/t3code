@@ -749,8 +749,7 @@ export function EnvironmentProviderSettings({
   for (const providerSettings of visibleProviderSettings) {
     const driver = providerSettings.provider;
     const defaultInstanceId = defaultInstanceIdForDriver(driver);
-    const configuredInstance = settings.providerInstances?.[defaultInstanceId];
-    const explicitInstance = configuredInstance?.driver === driver ? configuredInstance : undefined;
+    const explicitInstance = settings.providerInstances?.[defaultInstanceId];
     const isDirty = explicitInstance !== undefined;
     const hasDefaultSlot = providerSettings.hasDefaultInstance || explicitInstance !== undefined;
     if (

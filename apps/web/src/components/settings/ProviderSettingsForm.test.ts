@@ -16,27 +16,6 @@ import {
 } from "./ProviderSettingsForm";
 
 describe("ProviderSettingsForm helpers", () => {
-  it("offers the SDK switch only for Copilot registry instances and local Copilot commands", () => {
-    const definition = providerClients.get(ProviderDriverKind.make("acpRegistry"))!;
-    const fields = (value: unknown) => deriveProviderSettingsFields(definition, value);
-    for (const value of [
-      { agentId: "github-copilot-cli" },
-      { source: "local", commandPath: "C:\\tools\\copilot.cmd" },
-    ]) {
-      expect(fields(value).find((field) => field.key === "copilotSdk")).toMatchObject({
-        control: "switch",
-        defaultBooleanValue: false,
-      });
-    }
-    for (const value of [
-      { agentId: "gemini" },
-      { source: "local", agentId: "github-copilot-cli", commandPath: "gemini" },
-      undefined,
-    ]) {
-      expect(fields(value).some((field) => field.key === "copilotSdk")).toBe(false);
-    }
-  });
-
   it("keeps every masked field as a stored secret and offers a reference only where typed so", () => {
     const settingsSchema = makeProviderSettingsSchema({
       token: TrimmedString.pipe(

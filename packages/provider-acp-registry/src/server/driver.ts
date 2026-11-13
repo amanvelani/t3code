@@ -7,7 +7,7 @@ import {
   type ServerProvider,
   type ServerProviderModel,
 } from "@t3tools/contracts";
-import { AcpRegistrySettings, isCopilotAcpSettings } from "../settings.ts";
+import { AcpRegistrySettings } from "../settings.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import * as Clock from "effect/Clock";
@@ -353,17 +353,11 @@ export function buildCheckedAcpRegistrySnapshot(
     // Failed discovery is a warning: an installed agent may still run real turns.
     status: probeFailed ? "warning" : readiness.status,
     auth: input.probe
-      ? isCopilotAcpSettings(input.settings) && input.settings.copilotSdk
-        ? {
-            status: "authenticated",
-            label: "GitHub Copilot",
-            canLogout: false,
-          }
-        : {
-            // Discovery sessions and an empty auth-method list do not prove sign-in.
-            status: "unknown",
-            canLogout: input.probe.probe.sessionManagement.canLogout,
-          }
+      ? {
+          // Discovery sessions and an empty auth-method list do not prove sign-in.
+          status: "unknown",
+          canLogout: input.probe.probe.sessionManagement.canLogout,
+        }
       : input.probeError?.reason === "authentication_failed"
         ? {
             status: "unauthenticated",

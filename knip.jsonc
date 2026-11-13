@@ -67,7 +67,6 @@
         "@effect/platform-node-shared",
         "@t3tools/web",
         "@napi-rs/keyring",
-        "@github/copilot-sdk",
         "ffi-rs",
         "transcribe-cpp",
       ],

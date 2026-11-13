@@ -106,7 +106,6 @@ function curatedCauseMessages(cause: unknown): {
             category: categoryMessage(),
           };
         case "AcpModelSelectionError":
-        case "CopilotModelSwitchError":
         case "ClaudeBackgroundWorkBlocksQueryReplacementError":
         case "ClaudeAppendSystemPromptFileError":
         case "ClaudeAppendSystemPromptMissingValueError":

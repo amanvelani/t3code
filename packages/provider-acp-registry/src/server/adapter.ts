@@ -9,8 +9,6 @@ import {
   extractDevinSubagentUpdate,
 } from "./devinAcp.ts";
 import { extractDroidElicitationForm } from "./droidAcp.ts";
-import type { MakeCopilotSdkClient } from "./copilotSdk.ts";
-import { makeCopilotSdkAdapterV2 } from "./copilotSdkAdapter.ts";
 import {
   copilotClientCapabilitiesMeta,
   extractCopilotSubagentUpdate,
@@ -19,7 +17,7 @@ import {
 } from "./copilotAcp.ts";
 import { defaultInstanceIdForDriver, ProviderDriverKind } from "@t3tools/contracts";
 import { readCustomModelEntries } from "@t3tools/shared/model";
-import { AcpRegistrySettings, isCopilotAcpSettings } from "../settings.ts";
+import { AcpRegistrySettings } from "../settings.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSelfInvocation, type SelfInvocation } from "@t3tools/shared/nodeRuntime";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -83,7 +81,6 @@ export interface AcpRegistryAdapterV2Options {
   >;
   readonly continuationRequests?: Parameters<typeof makeAcpAdapterV2>[0]["continuationRequests"];
   readonly assertComplete?: Effect.Effect<void, EffectAcpErrors.AcpError>;
-  readonly makeCopilotSdkClient?: MakeCopilotSdkClient;
 }
 
 // Mistral Vibe's application rate-limit code, outside ACP.
@@ -191,21 +188,10 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
     options.settings.source === "local" ? `local:${options.instanceId}` : registryAgentId;
   const isDevin = registryAgentId === "devin";
   // Local installs launch the `copilot` binary directly with no registry id.
-  const isCopilot = isCopilotAcpSettings(options.settings);
-  if (isCopilot && options.settings.copilotSdk) {
-    return yield* makeCopilotSdkAdapterV2({
-      instanceId: options.instanceId,
-      settings: options.settings,
-      environment: options.environment,
-      resolveSpawn: (cwd) =>
-        catalog
-          .resolve(options.settings, cwd, options.environment)
-          .pipe(Effect.map((resolved) => resolved.spawn)),
-      ...(options.makeCopilotSdkClient === undefined
-        ? {}
-        : { makeClient: options.makeCopilotSdkClient }),
-    });
-  }
+  const isCopilot =
+    registryAgentId === "github-copilot-cli" ||
+    (options.settings.source === "local" &&
+      /^copilot(\.exe|\.cmd)?$/i.test(options.settings.commandPath.split(/[\\/]/).pop() ?? ""));
   const isClaude =
     registryAgentId === "claude-acp" ||
     (options.settings.source === "local" &&

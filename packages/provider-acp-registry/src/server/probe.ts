@@ -10,12 +10,11 @@ import {
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
-import { AcpRegistrySettings, isCopilotAcpSettings } from "../settings.ts";
+import { AcpRegistrySettings } from "../settings.ts";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -23,16 +22,6 @@ import * as Result from "effect/Result";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
-import * as HostProcess from "@t3tools/shared/HostProcess";
-
-import {
-  buildCopilotDiscoveredModels,
-  copilotSdkRuntimeEnvironment,
-  makeCopilotSdkClient,
-  resolveCopilotCliPath,
-  scopedCopilotInspectionClient,
-  type MakeCopilotSdkInspectionClient,
-} from "./copilotSdk.ts";
 
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
@@ -325,187 +314,9 @@ export type AcpRegistryConfigurationProbe<Requirements = never> = (
   input: AcpRegistryConfigurationProbeInput,
 ) => Effect.Effect<AcpRegistryConfigurationProbeResult, AcpRegistryOperationError, Requirements>;
 
-const probeCopilotSdkConfiguration = Effect.fn("AcpRegistryProbe.probeCopilotSdkConfiguration")(
-  function* (
-    input: AcpRegistryConfigurationProbeInput,
-    options?: {
-      readonly makeClient?: MakeCopilotSdkInspectionClient;
-    },
-  ): Effect.fn.Return<
-    AcpRegistryConfigurationProbeResult,
-    AcpRegistryOperationError,
-    | AcpRegistrySupport.AcpRegistryCatalog
-    | ChildProcessSpawner.ChildProcessSpawner
-    | SecureRandom.SecureRandom
-  > {
-    const catalog = yield* AcpRegistrySupport.AcpRegistryCatalog;
-    const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem);
-    const spawner = yield* Effect.serviceOption(ChildProcessSpawner.ChildProcessSpawner);
-
-    const resolved = yield* catalog
-      .resolve(input.settings, input.cwd, input.environment)
-      .pipe(Effect.mapError(AcpRegistrySupport.toAcpRegistryOperationError));
-
-    const platform = yield* HostProcess.Platform;
-    const architecture = yield* HostProcess.Architecture;
-
-    const effectiveEnvironment = copilotSdkRuntimeEnvironment({
-      ...input.environment,
-      ...resolved.spawn.env,
-    });
-
-    const cliPath = yield* resolveCopilotCliPath({
-      command: resolved.spawn.command,
-      environment: effectiveEnvironment,
-      platform,
-      architecture,
-      fileSystem: Option.getOrUndefined(fileSystem),
-    });
-
-    const makeClient = options?.makeClient ?? makeCopilotSdkClient;
-
-    const authMethods: ReadonlyArray<AcpRegistryProbeAuthMethod> = [
-      {
-        id: "copilot-login",
-        name: "GitHub Copilot sign in",
-        description: "Sign in with your GitHub account using the Copilot CLI in a terminal.",
-        type: "terminal",
-        command: `${resolved.spawn.command} login`,
-      },
-    ];
-
-    const probeResult = yield* Effect.scoped(
-      Effect.gen(function* () {
-        const client = yield* scopedCopilotInspectionClient(
-          () =>
-            makeClient({
-              cliPath,
-              cwd: input.cwd,
-              env: effectiveEnvironment,
-            }),
-          {
-            platform,
-            spawner: Option.getOrUndefined(spawner),
-            timeout: Duration.seconds(2),
-          },
-        );
-
-        yield* Effect.tryPromise({
-          try: () => client.start(),
-          catch: (cause) =>
-            new AcpRegistryOperationError({
-              reason: "probe_failed",
-              message: "Could not connect to GitHub Copilot CLI.",
-              cause,
-            }),
-        }).pipe(
-          Effect.timeoutOrElse({
-            duration: Duration.seconds(10),
-            orElse: () =>
-              Effect.fail(
-                new AcpRegistryOperationError({
-                  reason: "probe_failed",
-                  message: "Connecting to GitHub Copilot CLI timed out.",
-                }),
-              ),
-          }),
-        );
-
-        const authStatus = yield* Effect.tryPromise({
-          try: () => client.getAuthStatus(),
-          catch: (cause) =>
-            new AcpRegistryOperationError({
-              reason: "probe_failed",
-              message: "Could not check GitHub Copilot authentication status.",
-              cause,
-            }),
-        }).pipe(
-          Effect.timeoutOrElse({
-            duration: Duration.seconds(5),
-            orElse: () =>
-              Effect.fail(
-                new AcpRegistryOperationError({
-                  reason: "probe_failed",
-                  message: "Checking GitHub Copilot authentication status timed out.",
-                }),
-              ),
-          }),
-        );
-
-        if (!authStatus.isAuthenticated) {
-          return yield* new AcpRegistryOperationError({
-            reason: "authentication_failed",
-            message:
-              authStatus.statusMessage ||
-              "GitHub Copilot is not authenticated. Sign in with 'copilot login' or in provider settings.",
-            authMethods,
-          });
-        }
-
-        const catalog = yield* Effect.tryPromise({
-          try: () => client.getModelCatalog(),
-          catch: (cause) =>
-            new AcpRegistryOperationError({
-              reason: "probe_failed",
-              message: "Could not retrieve GitHub Copilot models.",
-              cause,
-            }),
-        }).pipe(
-          Effect.timeoutOrElse({
-            duration: Duration.seconds(5),
-            orElse: () =>
-              Effect.fail(
-                new AcpRegistryOperationError({
-                  reason: "probe_failed",
-                  message: "Retrieving GitHub Copilot models timed out.",
-                }),
-              ),
-          }),
-        );
-
-        const models = buildCopilotDiscoveredModels(catalog);
-
-        if (models.length === 0) {
-          return yield* new AcpRegistryOperationError({
-            reason: "probe_failed",
-            message: "GitHub Copilot did not return any available models.",
-          });
-        }
-
-        return {
-          probe: AcpRegistryProbeResult.make({
-            instanceId: input.instanceId,
-            ready: true,
-            icon: null,
-            authMethods,
-            models,
-            currentModelId: models[0]?.id ?? null,
-            configOptions: [],
-            sessionManagement: {
-              canList: false,
-              canLoad: false,
-              canResume: false,
-              canLogout: false,
-              canDelete: false,
-              canConfigureProviders: false,
-            },
-          }),
-          slashCommands: [],
-          skills: [],
-        };
-      }),
-    );
-
-    return probeResult;
-  },
-);
-
 export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeConfiguration")(
   function* (
     input: AcpRegistryConfigurationProbeInput,
-    options?: {
-      readonly makeCopilotSdkClient?: MakeCopilotSdkInspectionClient;
-    },
   ): Effect.fn.Return<
     AcpRegistryConfigurationProbeResult,
     AcpRegistryOperationError,
@@ -513,24 +324,6 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
     | ChildProcessSpawner.ChildProcessSpawner
     | SecureRandom.SecureRandom
   > {
-    if (isCopilotAcpSettings(input.settings) && input.settings.copilotSdk) {
-      return yield* probeCopilotSdkConfiguration(
-        input,
-        options?.makeCopilotSdkClient ? { makeClient: options.makeCopilotSdkClient } : undefined,
-      ).pipe(
-        Effect.timeoutOrElse({
-          duration: PROBE_TIMEOUT,
-          orElse: () =>
-            Effect.fail(
-              new AcpRegistryOperationError({
-                reason: "probe_failed",
-                message: `GitHub Copilot did not finish checking availability within ${PROBE_TIMEOUT_SECONDS} seconds. Package installation or agent startup may be slow; this check retries on the next provider refresh.`,
-              }),
-            ),
-        }),
-      );
-    }
-
     const catalog = yield* AcpRegistrySupport.AcpRegistryCatalog;
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const random = yield* SecureRandom.SecureRandom;
@@ -975,13 +768,6 @@ export const disableAcpRegistryProvider = Effect.fn("AcpRegistryProbe.disablePro
 
 export const logoutAcpRegistry = Effect.fn("AcpRegistryProbe.logout")(
   function* (input: AcpRegistryManagementInput) {
-    if (isCopilotAcpSettings(input.settings) && input.settings.copilotSdk) {
-      return yield* new AcpRegistryOperationError({
-        reason: "logout_unsupported",
-        message:
-          "In-app sign-out is unavailable for GitHub Copilot. Manage accounts in the Copilot CLI.",
-      });
-    }
     const runtime = yield* makeAcpRegistryManagementRuntime(input);
     yield* runtime.logout;
   },
