@@ -124,7 +124,6 @@ export function buildTraitsTriggerDisplay(input: {
   const labels: Array<string> = [];
   for (const descriptor of input.descriptors) {
     if (
-      input.provider === "codex" &&
       descriptor.id === "contextWindow" &&
       descriptor.type === "select" &&
       getProviderOptionCurrentValue(descriptor) === "default"

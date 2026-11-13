@@ -284,7 +284,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("PairingGrantStor
         Effect.forkScoped({ startImmediately: true }),
       );
       // An app approval code sends no update, issued or spent; the next belongs to a plain code.
-      const approval = yield* grants.issueOneTimeToken({ mcpApproval: "auto" });
+      const approval = yield* grants.issuePairingToken({ mcpApproval: "auto" });
       yield* grants.consume(approval.credential, { mcpApproval: "auto" });
       for (const input of [{}, { label: "Synthetic phone" }]) {
         const issued = yield* grants.issuePairingToken(input);

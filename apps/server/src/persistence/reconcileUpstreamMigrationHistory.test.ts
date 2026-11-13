@@ -34,6 +34,15 @@ import DropOrchestrationEventCorrelationIndex from "./Migrations/080_DropOrchest
 import DelegatedRecoveryIndexes from "./Migrations/081_DelegatedRecoveryIndexes.ts";
 import ScheduledTaskThreadMode from "./Migrations/082_ScheduledTaskThreadMode.ts";
 
+import ProjectionMessageSearchText from "./Migrations/083_ProjectionMessageSearchText.ts";
+import TurnItemConversationIndex from "./Migrations/084_TurnItemConversationIndex.ts";
+import CommandReadIndexes from "./Migrations/085_CommandReadIndexes.ts";
+import LastExecutedRunIndex from "./Migrations/086_LastExecutedRunIndex.ts";
+import TurnItemCounts from "./Migrations/087_TurnItemCounts.ts";
+import QueuedTurnInputIndex from "./Migrations/088_QueuedTurnInputIndex.ts";
+import ProjectionProjectsCustomTitle from "./Migrations/089_ProjectionProjectsCustomTitle.ts";
+import TurnItemTypeStatusIndex from "./Migrations/090_TurnItemTypeStatusIndex.ts";
+
 const officialMigrations = [
   [57, "ScheduledTaskWebhooks", ScheduledTaskWebhooks],
   [58, "WebhookRelayDeliveries", WebhookRelayDeliveries],
@@ -59,6 +68,14 @@ const officialMigrations = [
   [78, "DropOrchestrationEventCorrelationIndex", DropOrchestrationEventCorrelationIndex],
   [79, "DelegatedRecoveryIndexes", DelegatedRecoveryIndexes],
   [80, "ScheduledTaskThreadMode", ScheduledTaskThreadMode],
+  [81, "ProjectionMessageSearchText", ProjectionMessageSearchText],
+  [82, "TurnItemConversationIndex", TurnItemConversationIndex],
+  [83, "CommandReadIndexes", CommandReadIndexes],
+  [84, "LastExecutedRunIndex", LastExecutedRunIndex],
+  [85, "TurnItemCounts", TurnItemCounts],
+  [86, "QueuedTurnInputIndex", QueuedTurnInputIndex],
+  [87, "ProjectionProjectsCustomTitle", ProjectionProjectsCustomTitle],
+  [88, "TurnItemTypeStatusIndex", TurnItemTypeStatusIndex],
 ] as const;
 
 const seedOfficial = Effect.fnUntraced(function* (through: number) {
