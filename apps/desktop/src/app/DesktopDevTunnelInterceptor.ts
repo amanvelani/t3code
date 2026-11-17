@@ -74,6 +74,7 @@ export function parseTunnelTokensFromCatalog(catalogJson: string | null): Map<st
 export class DesktopDevTunnelInterceptor extends Context.Service<
   DesktopDevTunnelInterceptor,
   {
+    readonly start: Effect.Effect<void>;
     readonly updateCatalog: (catalogJson: string | null) => Effect.Effect<void>;
     readonly lookupTunnelToken: (url: string) => Option.Option<string>;
     readonly dispose: Effect.Effect<void>;
@@ -86,7 +87,7 @@ export const makeWithSession = Effect.fn("DesktopDevTunnelInterceptor.makeWithSe
   const scope = yield* Effect.serviceOption(Scope.Scope);
   let currentTokens = new Map<string, string>();
 
-  const targetSession = session ?? (Electron.session ? Electron.session.defaultSession : undefined);
+  let targetSession: DevTunnelSessionLike | undefined;
 
   const listener = (
     details: Pick<Electron.OnBeforeSendHeadersListenerDetails, "url" | "requestHeaders">,
@@ -114,10 +115,14 @@ export const makeWithSession = Effect.fn("DesktopDevTunnelInterceptor.makeWithSe
   };
 
   let installed = false;
-  if (targetSession?.webRequest?.onBeforeSendHeaders) {
-    targetSession.webRequest.onBeforeSendHeaders(listener);
-    installed = true;
-  }
+  const start = Effect.sync(() => {
+    if (installed) return;
+    targetSession = session ?? Electron.session.defaultSession;
+    if (targetSession.webRequest?.onBeforeSendHeaders) {
+      targetSession.webRequest.onBeforeSendHeaders(listener);
+      installed = true;
+    }
+  });
 
   const dispose = Effect.sync(() => {
     if (installed && targetSession?.webRequest?.onBeforeSendHeaders) {
@@ -151,6 +156,7 @@ export const makeWithSession = Effect.fn("DesktopDevTunnelInterceptor.makeWithSe
   };
 
   return DesktopDevTunnelInterceptor.of({
+    start,
     updateCatalog,
     lookupTunnelToken,
     dispose,

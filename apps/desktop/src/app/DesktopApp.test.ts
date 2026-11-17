@@ -56,6 +56,7 @@ import * as DesktopBackendConfiguration from "../backend/DesktopBackendConfigura
 import * as DesktopCliCommand from "./DesktopCliCommand.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as DesktopConnectionCatalogStore from "./DesktopConnectionCatalogStore.ts";
+import * as DesktopDevTunnelInterceptor from "./DesktopDevTunnelInterceptor.ts";
 import * as DesktopIpc from "../ipc/DesktopIpc.ts";
 import * as DesktopLocalEnvironmentAuth from "../backend/DesktopLocalEnvironmentAuth.ts";
 import * as DesktopManagedPolicy from "./DesktopManagedPolicy.ts";
@@ -221,6 +222,10 @@ it.effect.each([false, true])(
             Layer.mock(DesktopCliCommand.DesktopCliCommand, {}),
             Layer.mock(DesktopClientSettings.DesktopClientSettings, {}),
             Layer.mock(DesktopConnectionCatalogStore.DesktopConnectionCatalogStore, {}),
+            Layer.mock(DesktopDevTunnelInterceptor.DesktopDevTunnelInterceptor, {
+              start: record("tunnel-interceptor"),
+              lookupTunnelToken: () => Option.none(),
+            }),
             Layer.mock(DesktopIpc.DesktopIpc, {}),
             Layer.mock(DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth, {}),
             Layer.mock(DesktopManagedPolicy.DesktopManagedPolicy, {}),
@@ -253,7 +258,14 @@ it.effect.each([false, true])(
       );
       yield* Deferred.await(registrationStarted);
       yield* Deferred.await(windowStarted);
-      assert.deepEqual(events, ["identity", "ready", "identity", "backend", "window"]);
+      assert.deepEqual(events, [
+        "identity",
+        "ready",
+        "tunnel-interceptor",
+        "identity",
+        "backend",
+        "window",
+      ]);
       assert.isFalse(yield* Deferred.isDone(registrationStopped));
       const shutdown = yield* DesktopShutdown.DesktopShutdown;
       yield* shutdown.request;

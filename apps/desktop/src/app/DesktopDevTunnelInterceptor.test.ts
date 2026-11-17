@@ -1,5 +1,6 @@
-import { assert, describe, it, vi } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import { vi } from "vite-plus/test";
 
 import {
   extractExactSecureOrigins,
@@ -13,7 +14,23 @@ type HeaderListener = Exclude<
   null
 >;
 
+vi.mock("electron", () => ({
+  session: {
+    get defaultSession() {
+      throw new Error("Default session is unavailable before app readiness.");
+    },
+  },
+}));
+
 describe("DesktopDevTunnelInterceptor", () => {
+  it.effect("can initialize and dispose before Electron is ready", () =>
+    Effect.gen(function* () {
+      const interceptor = yield* makeWithSession();
+      yield* interceptor.updateCatalog(null);
+      yield* interceptor.dispose;
+    }),
+  );
+
   it("extracts exact secure origins and their ws equivalents", () => {
     const origins = extractExactSecureOrigins(
       "https://test-4000.asse.devtunnels.ms",
@@ -126,7 +143,7 @@ describe("DesktopDevTunnelInterceptor", () => {
         };
 
         const interceptor = yield* makeWithSession(mockSession);
-        assert.ok(registeredListener);
+        assert.isNull(registeredListener);
         const invokeListener = (details: Parameters<HeaderListener>[0]) => {
           let headers: Electron.BeforeSendResponse["requestHeaders"];
           if (!registeredListener) throw new Error("Listener was not registered.");
@@ -164,6 +181,10 @@ describe("DesktopDevTunnelInterceptor", () => {
         });
 
         yield* interceptor.updateCatalog(catalog);
+        yield* interceptor.start;
+        yield* interceptor.start;
+        assert.strictEqual(mockSession.webRequest.onBeforeSendHeaders.mock.calls.length, 1);
+        assert.ok(registeredListener);
 
         // 1. Matching HTTPS request (e.g. image, video, fetch)
         assert.deepStrictEqual(

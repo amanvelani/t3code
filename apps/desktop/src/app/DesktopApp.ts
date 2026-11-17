@@ -16,6 +16,7 @@ import * as DesktopAppActivation from "./DesktopAppActivation.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
 import * as DesktopCliCommand from "./DesktopCliCommand.ts";
+import * as DesktopDevTunnelInterceptor from "./DesktopDevTunnelInterceptor.ts";
 import * as DesktopApplicationMenu from "../window/DesktopApplicationMenu.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 import * as PreviewPasskeys from "../preview/Passkeys.ts";
@@ -313,6 +314,7 @@ const startup = Effect.gen(function* () {
   const updates = yield* DesktopUpdates.DesktopUpdates;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const previewPasskeys = yield* PreviewPasskeys.PreviewPasskeys;
+  const devTunnelInterceptor = yield* DesktopDevTunnelInterceptor.DesktopDevTunnelInterceptor;
 
   yield* shellEnvironment.installIntoProcess;
   const hasCommandLinePasswordStore =
@@ -362,6 +364,7 @@ const startup = Effect.gen(function* () {
     Effect.catchCause((cause) => fatalStartupCause("whenReady", cause)),
   );
   yield* logStartupInfo("app ready");
+  yield* devTunnelInterceptor.start;
   if (environment.platform === "linux") {
     const selectedBackend = yield* safeStorage.selectedStorageBackend;
     yield* logStartupInfo("safe storage ready", {
