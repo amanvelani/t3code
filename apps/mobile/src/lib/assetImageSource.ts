@@ -6,6 +6,8 @@ import {
 } from "@t3tools/contracts";
 import type { ImageSource } from "expo-image";
 
+import { devTunnelHeaders } from "./devTunnelHeaders";
+
 /**
  * Signed URLs change on each mint and reconnect, so a URL-keyed cache misses every time.
  * Content that cannot change caches under its identity, and host files under the revision the
@@ -49,5 +51,10 @@ export function assetImageSource(
   fileRevision?: string,
 ): ImageSource {
   const cacheKey = assetImageCacheKey(environmentId, resource, fileRevision);
-  return cacheKey === undefined ? { uri } : { uri, cacheKey };
+  const headers = devTunnelHeaders(uri, environmentId);
+  return {
+    uri,
+    ...(headers ? { headers } : {}),
+    ...(cacheKey === undefined ? {} : { cacheKey }),
+  };
 }

@@ -214,8 +214,28 @@ export const make = Effect.gen(function* () {
         );
         return true;
       };
+      const isDevTunnelAuthCallback = (value: string) => {
+        try {
+          const url = new URL(value);
+          return (
+            (url.protocol === "t3code:" ||
+              url.protocol === "t3code-dev:" ||
+              url.protocol === "t3code-preview:") &&
+            url.host === "dev-tunnel-auth" &&
+            (url.pathname === "" || url.pathname === "/") &&
+            !url.search
+          );
+        } catch {
+          return false;
+        }
+      };
       const openAppLink = (value: string | undefined) => {
-        if (!value || (promptLinkAppPath(value) === null && readPairingAppLink(value) === null))
+        if (
+          !value ||
+          (promptLinkAppPath(value) === null &&
+            readPairingAppLink(value) === null &&
+            !isDevTunnelAuthCallback(value))
+        )
           return false;
         void runPromise(webLinks.receive(value));
         return true;

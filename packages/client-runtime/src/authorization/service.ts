@@ -5,6 +5,7 @@ import {
 } from "@t3tools/contracts";
 import { RelayEnvironmentConnectScope } from "@t3tools/contracts/relay";
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
+import { isDevTunnelUrl } from "@t3tools/shared/remote";
 import {
   exchangeRemoteDpopAccessToken,
   type RemoteEnvironmentAuthError,
@@ -18,6 +19,7 @@ import {
   mapRemoteEnvironmentError,
 } from "../connection/errors.ts";
 import {
+  assertTunnelTokenNotExpired,
   ConnectionBlockedError,
   ConnectionTransientError,
   type ConnectionAttemptError,
@@ -50,7 +52,8 @@ export interface AuthorizedRemoteEnvironment {
   readonly httpBaseUrl: string;
   readonly socketUrl: string;
   readonly httpAuthorization: PreparedHttpAuthorization;
-  readonly descriptor?: ExecutionEnvironmentDescriptor;
+  readonly descriptor?: ExecutionEnvironmentDescriptor | undefined;
+  readonly tunnelToken?: string | undefined;
 }
 
 export interface AuthorizedRemoteHttpEnvironment {
@@ -69,6 +72,7 @@ export class RemoteEnvironmentAuthorization extends Context.Service<
       readonly wsBaseUrl: string;
       readonly bearerToken: string;
       readonly connectionMethod: ClientConnectionMethod;
+      readonly tunnelToken?: string | undefined;
     }) => Effect.Effect<AuthorizedRemoteEnvironment, ConnectionAttemptError>;
     readonly authorizeDpop: (input: {
       readonly expectedEnvironmentId: EnvironmentId;
@@ -125,9 +129,11 @@ const fetchDescriptor = Effect.fn("clientRuntime.connection.remote.fetchDescript
   httpBaseUrl: string,
   connectionMethod: ClientConnectionMethod,
   timeoutMs?: number,
+  tunnelToken?: string,
 ) {
   return yield* fetchRemoteEnvironmentDescriptor({
     httpBaseUrl,
+    tunnelToken,
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
   }).pipe(Effect.mapError((error) => mapRemoteEnvironmentError(error, connectionMethod)));
 });
@@ -172,6 +178,7 @@ export const make = Effect.gen(function* () {
       readonly expectedEnvironmentId: EnvironmentId;
       readonly httpBaseUrl: string;
       readonly connectionMethod: ClientConnectionMethod;
+      readonly tunnelToken?: string | undefined;
     }) {
       const checked = checkedDescriptors.get(input.httpBaseUrl);
       checkedDescriptors.delete(input.httpBaseUrl);
@@ -189,6 +196,7 @@ export const make = Effect.gen(function* () {
               input.connectionMethod === "direct" && isNearbyAddress(input.httpBaseUrl)
                 ? NEARBY_DESCRIPTOR_TIMEOUT_MS
                 : undefined,
+              input.tunnelToken,
             ).pipe(Effect.provideService(HttpClient.HttpClient, httpClient));
       if (descriptor.environmentId !== input.expectedEnvironmentId) {
         return yield* environmentMismatchError({
@@ -209,7 +217,11 @@ export const make = Effect.gen(function* () {
       readonly wsBaseUrl: string;
       readonly bearerToken: string;
       readonly connectionMethod: ClientConnectionMethod;
+      readonly tunnelToken?: string | undefined;
     }) {
+      if (input.tunnelToken) {
+        yield* assertTunnelTokenNotExpired(input.tunnelToken);
+      }
       const descriptor = yield* verifyDirectEndpoint(input);
       const socketUrl = yield* resolveRemoteWebSocketConnectionUrl({
         wsBaseUrl: input.wsBaseUrl,
@@ -217,6 +229,7 @@ export const make = Effect.gen(function* () {
         bearerToken: input.bearerToken,
         clientMetadata: presentation.metadata,
         connectionMethod: input.connectionMethod,
+        tunnelToken: input.tunnelToken,
       }).pipe(
         Effect.mapError(mapRemoteEnvironmentError),
         Effect.provideService(HttpClient.HttpClient, httpClient),
@@ -231,6 +244,9 @@ export const make = Effect.gen(function* () {
           _tag: "Bearer" as const,
           token: input.bearerToken,
         },
+        ...(isDevTunnelUrl(input.httpBaseUrl) && input.tunnelToken
+          ? { tunnelToken: input.tunnelToken }
+          : {}),
       };
     },
   );

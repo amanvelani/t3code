@@ -220,6 +220,7 @@ import * as ProjectHttp from "./project/http.ts";
 import * as NetService from "@t3tools/shared/Net";
 import * as RelayClient from "@t3tools/shared/relayClient";
 import * as DevTunnel from "./environment/DevTunnel.ts";
+import * as DevTunnelHttp from "./environment/DevTunnelHttp.ts";
 import {
   disableTailscaleServe,
   ensureTailscaleServe,
@@ -801,6 +802,7 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.mergeAll(
     HttpApiBuilder.layer(EnvironmentHttpApi).pipe(
       Layer.provide(AuthHttp.layer),
+      Layer.provide(DevTunnelHttp.layer),
       Layer.provide(McpOAuthHttp.layer.pipe(Layer.provide(McpOAuth.layer))),
       Layer.provide(CloudHttp.layer),
       Layer.provide(OrchestrationHttp.layer),
@@ -818,6 +820,7 @@ const layerMakeRoutes = Layer.mergeAll(
     DeviceHubProxy.layer,
     ServerBrowserStream.routeLayer,
     ServerHttp.layerStaticAndDevRoute,
+    DevTunnelHttp.layerAuthPage,
     Ws.layer,
     speechStreamRouteLayer,
   ),

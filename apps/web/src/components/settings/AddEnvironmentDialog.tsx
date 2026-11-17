@@ -58,6 +58,8 @@ import {
   threadJumpCommandForIndex,
   threadJumpIndexFromCommand,
 } from "../../keybindings";
+import { isDevTunnelUrl } from "@t3tools/shared/remote";
+import { isHostedStaticApp } from "~/hostedPairing";
 import {
   parseManualDesktopSshTarget,
   parsePairingUrlFields,
@@ -116,6 +118,12 @@ export function AddEnvironmentDialog({
   const [savedBackendMode, setSavedBackendMode] = useState<"remote" | "ssh">("remote");
   const [savedBackendHost, setSavedBackendHost] = useState("");
   const [savedBackendPairingCode, setSavedBackendPairingCode] = useState("");
+  const [savedBackendTunnelToken, setSavedBackendTunnelToken] = useState<string | undefined>(
+    undefined,
+  );
+  const [savedBackendPairingUrl, setSavedBackendPairingUrl] = useState<string | undefined>(
+    undefined,
+  );
   const [savedBackendSshHost, setSavedBackendSshHost] = useState("");
   const [savedBackendSshUsername, setSavedBackendSshUsername] = useState("");
   const [savedBackendSshPort, setSavedBackendSshPort] = useState("");
@@ -157,6 +165,8 @@ export function AddEnvironmentDialog({
       setSavedBackendMode("remote");
       setSavedBackendHost("");
       setSavedBackendPairingCode("");
+      setSavedBackendTunnelToken(undefined);
+      setSavedBackendPairingUrl(undefined);
       setSavedBackendSshHost("");
       setSavedBackendSshUsername("");
       setSavedBackendSshPort("");
@@ -216,6 +226,8 @@ export function AddEnvironmentDialog({
       remotePairingInput = parseRemotePairingFields({
         host: savedBackendHost,
         pairingCode: savedBackendPairingCode,
+        ...(savedBackendTunnelToken ? { tunnelToken: savedBackendTunnelToken } : {}),
+        ...(savedBackendPairingUrl ? { pairingUrl: savedBackendPairingUrl } : {}),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to add backend.";
@@ -225,6 +237,25 @@ export function AddEnvironmentDialog({
           type: "error",
           title: "Could not add backend",
           description: message,
+        }),
+      );
+      setIsAddingSavedBackend(false);
+      return;
+    }
+
+    const isDevTunnelTarget =
+      Boolean(remotePairingInput.tunnelToken) ||
+      isDevTunnelUrl(remotePairingInput.host) ||
+      remotePairingInput.host.toLowerCase().includes(".devtunnels.ms");
+    if (isHostedStaticApp() && isDevTunnelTarget) {
+      const unsupportedMessage =
+        "Private Dev Tunnels are not supported in the hosted web app. Use the T3 Code desktop app or connect directly.";
+      onErrorChange(unsupportedMessage);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Unsupported connection",
+          description: unsupportedMessage,
         }),
       );
       setIsAddingSavedBackend(false);
@@ -348,9 +379,13 @@ export function AddEnvironmentDialog({
     if (parsedPairingUrl) {
       setSavedBackendHost(parsedPairingUrl.host);
       setSavedBackendPairingCode(parsedPairingUrl.pairingCode);
+      setSavedBackendTunnelToken(parsedPairingUrl.tunnelToken);
+      setSavedBackendPairingUrl(parsedPairingUrl.pairingUrl);
       return;
     }
     setSavedBackendHost(value);
+    setSavedBackendTunnelToken(undefined);
+    setSavedBackendPairingUrl(undefined);
   };
   const renderConnectionModeCard = (input: {
     readonly mode: "remote" | "ssh";

@@ -25,10 +25,14 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as AuthHttp from "./http.ts";
+import * as DevTunnel from "../environment/DevTunnel.ts";
+import * as DevTunnelHttp from "../environment/DevTunnelHttp.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 
 const DEV_TOKEN = "reusable-dev-auth-token-that-is-long-enough";
-class AuthTestApi extends HttpApi.make("environment").add(EnvironmentHttpApi.groups.auth) {}
+class AuthTestApi extends HttpApi.make("environment")
+  .add(EnvironmentHttpApi.groups.auth)
+  .add(EnvironmentHttpApi.groups.devTunnel) {}
 
 const layerConfig = Layer.effect(
   ServerConfig.ServerConfig,
@@ -51,6 +55,16 @@ const layerEnvironmentAuth = EnvironmentAuth.layer.pipe(
   Layer.provide(layerConfig),
 );
 const layerRoutes = HttpApiBuilder.layer(AuthTestApi).pipe(
+  Layer.provide(
+    DevTunnelHttp.layer.pipe(
+      Layer.provide(
+        Layer.mock(DevTunnel.DevTunnel)({
+          issueConnectToken: () =>
+            Effect.succeed({ token: "connect-only-token", expiresAtEpochMs: 4_102_444_800_000 }),
+        }),
+      ),
+    ),
+  ),
   Layer.provide(AuthHttp.layer),
   Layer.provide(AuthHttp.layerAuthenticatedAuth),
   Layer.provideMerge(layerEnvironmentAuth),
@@ -152,6 +166,26 @@ it.effect("sets the selected browser session cookies through the HTTP route", ()
           expect(restrictedCookies).toHaveLength(1);
           expect(restrictedCookies[0]).toMatch(/^t3_session_/);
           expect(restrictedCookies[0]).not.toContain("t3_dev_session_");
+          const restrictedCookie = restrictedCookies[0]?.split(";", 1)[0] ?? "";
+          for (const [headers, expectedStatus] of [
+            [{}, 401],
+            [{ authorization: "Bearer invalid-token" }, 401],
+            [{ cookie: restrictedCookie }, 403],
+            [{ cookie: devCookieHeader }, 200],
+          ] as const) {
+            const renewed = await environmentA.handler(
+              postJson("/api/dev-tunnel/token", {}, headers),
+              requestContext,
+            );
+            expect(renewed.status).toBe(expectedStatus);
+            if (expectedStatus === 200) {
+              expect(renewed.headers.get("cache-control")).toBe("no-store");
+              expect(await renewed.json()).toEqual({
+                token: "connect-only-token",
+                expiresAtEpochMs: 4_102_444_800_000,
+              });
+            }
+          }
         }),
       ([environmentA, environmentB]) =>
         Effect.promise(() => Promise.all([environmentA.dispose(), environmentB.dispose()])),

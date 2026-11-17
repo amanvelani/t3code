@@ -122,8 +122,11 @@ export const exchangeRemoteDpopAccessToken = Effect.fn(
   readonly clientMetadata?: AuthClientPresentationMetadata;
   readonly dpopProof: string;
   readonly timeoutMs?: number;
+  readonly tunnelToken?: string | undefined;
 }) {
-  const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth");
+  const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth", {
+    tunnelToken: input.tunnelToken,
+  });
   const response = yield* executeEnvironmentHttpRequest(
     environmentEndpointUrl(input.httpBaseUrl, "/oauth/token"),
     input.timeoutMs ?? DEFAULT_REMOTE_REQUEST_TIMEOUT_MS,
@@ -150,8 +153,11 @@ export const bootstrapRemoteBearerSession = Effect.fn(
   readonly scopes?: ReadonlyArray<AuthEnvironmentScope>;
   readonly clientMetadata?: AuthClientPresentationMetadata;
   readonly timeoutMs?: number;
+  readonly tunnelToken?: string | undefined;
 }) {
-  const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth");
+  const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth", {
+    tunnelToken: input.tunnelToken,
+  });
   return yield* executeEnvironmentHttpRequest(
     environmentEndpointUrl(input.httpBaseUrl, "/oauth/token"),
     input.timeoutMs ?? DEFAULT_REMOTE_REQUEST_TIMEOUT_MS,
@@ -175,8 +181,11 @@ export const fetchRemoteSessionState = Effect.fn(
   readonly httpBaseUrl: string;
   readonly bearerToken: string;
   readonly timeoutMs?: number;
+  readonly tunnelToken?: string | undefined;
 }) {
-  const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth");
+  const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth", {
+    tunnelToken: input.tunnelToken,
+  });
   return yield* executeEnvironmentHttpRequest(
     environmentEndpointUrl(input.httpBaseUrl, "/api/auth/session"),
     input.timeoutMs ?? DEFAULT_REMOTE_REQUEST_TIMEOUT_MS,
@@ -219,8 +228,11 @@ export const issueRemoteWebSocketTicket = Effect.fn(
   readonly bearerToken: string;
   readonly use?: AuthWebSocketTicketUse;
   readonly timeoutMs?: number;
+  readonly tunnelToken?: string | undefined;
 }) {
-  const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth");
+  const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth", {
+    tunnelToken: input.tunnelToken,
+  });
   const headers = { authorization: `Bearer ${input.bearerToken}` };
   return yield* issueWebSocketTicketWithFallback(input.use, (use) =>
     executeEnvironmentHttpRequest(
@@ -243,8 +255,11 @@ export const issueRemoteDpopWebSocketTicket = Effect.fn(
   /** Proof for the bare path, used only when the server lacks the `/:use` route. */
   readonly fallbackProof?: Effect.Effect<string, E>;
   readonly timeoutMs?: number;
+  readonly tunnelToken?: string | undefined;
 }) {
-  const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth");
+  const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth", {
+    tunnelToken: input.tunnelToken,
+  });
   const fallbackProof = input.fallbackProof;
   return yield* issueWebSocketTicketWithFallback(
     input.use,
@@ -283,11 +298,13 @@ export const resolveRemoteWebSocketConnectionUrl = Effect.fn(
   readonly clientMetadata?: AuthClientPresentationMetadata;
   readonly connectionMethod?: ClientConnectionMethod;
   readonly timeoutMs?: number;
+  readonly tunnelToken?: string | undefined;
 }) {
   const issued = yield* issueRemoteWebSocketTicket({
     httpBaseUrl: input.httpBaseUrl,
     bearerToken: input.bearerToken,
     use: "rpc",
+    tunnelToken: input.tunnelToken,
     ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
   });
 
@@ -321,6 +338,7 @@ export const resolveRemoteDpopWebSocketConnectionUrl = Effect.fn(
   readonly clientMetadata?: AuthClientPresentationMetadata;
   readonly connectionMethod?: ClientConnectionMethod;
   readonly timeoutMs?: number;
+  readonly tunnelToken?: string | undefined;
 }) {
   const ticketProof = yield* input.createProof({
     method: "POST",
@@ -339,6 +357,7 @@ export const resolveRemoteDpopWebSocketConnectionUrl = Effect.fn(
         accessToken: input.accessToken,
       }),
     ),
+    tunnelToken: input.tunnelToken,
     ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
   });
   const url = rpcSocketUrl(input.wsBaseUrl);

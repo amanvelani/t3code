@@ -28,6 +28,7 @@ import * as RpcClient from "effect/rpc/RpcClient";
 import * as RpcClientError from "effect/rpc/RpcClientError";
 import * as RpcSerialization from "effect/rpc/RpcSerialization";
 import * as Socket from "effect/socket/Socket";
+import { devTunnelRequestHeaders } from "@t3tools/shared/remote";
 
 import { makeWsRpcProtocolClient, PING_TIMEOUT, type WsRpcProtocolClient } from "./protocol.ts";
 import { NETWORK_BLOCKING_HINT, UNRESPONSIVE_HOST_HINT } from "../errors/network.ts";
@@ -233,6 +234,10 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       });
       return socket;
     };
+    const devTunnelHeaders = devTunnelRequestHeaders(
+      connection.httpBaseUrl,
+      connection.tunnelToken,
+    );
     const socketUrl = new URL(connection.socketUrl);
     socketUrl.searchParams.set(SOCKET_FRAME_PARTS_QUERY_PARAM, "1");
     const layerSocket = Layer.effect(
@@ -242,6 +247,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       Layer.provide(
         Socket.layerWebSocket(socketUrl.toString(), {
           openTimeout: SOCKET_OPEN_TIMEOUT,
+          ...(Object.keys(devTunnelHeaders).length > 0 ? { headers: devTunnelHeaders } : {}),
         }),
       ),
       Layer.provide(Layer.succeed(Socket.WebSocketConstructor, countingWebSocketConstructor)),

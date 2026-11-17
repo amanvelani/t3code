@@ -1,6 +1,7 @@
 import type { VideoThumbnail } from "expo-video";
 
 import type { AttachmentPreviewFile } from "./attachmentDownload";
+import { devTunnelHeaders } from "./devTunnelHeaders";
 
 const thumbnails = new Map<string, VideoThumbnail>();
 const MAX_CACHED_THUMBNAILS = 32;
@@ -26,7 +27,12 @@ async function extractFrame(uri: string, signal: AbortSignal) {
     signal.addEventListener("abort", cancel, { once: true });
     timeout = setTimeout(cancel, 15_000);
     const frame = (async () => {
-      await player.replaceAsync({ uri, contentType: "progressive" });
+      const headers = devTunnelHeaders(uri);
+      await player.replaceAsync({
+        uri,
+        contentType: "progressive",
+        ...(headers ? { headers } : {}),
+      });
       if (disposed || signal.aborted) return null;
       const [thumbnail] = await player.generateThumbnailsAsync([0], {
         maxWidth: 480,

@@ -4,6 +4,8 @@ import {
   applyWslEnableSelection,
   isServerNetworkAccessible,
   resolveAccessEnvironmentId,
+  parsePairingUrlFields,
+  parseRemotePairingFields,
   resolveTailscaleServeBaseUrl,
   selectQrEndpointOption,
   togglePairingScopeSelection,
@@ -213,5 +215,71 @@ describe("isServerNetworkAccessible", () => {
     { authPolicy: null, directEndpoints: served, expected: false },
   ] as const)("$authPolicy with $directEndpoints.length endpoints", (row) => {
     expect(isServerNetworkAccessible(row)).toBe(row.expected);
+  });
+});
+
+describe("parsePairingUrlFields and parseRemotePairingFields", () => {
+  it("extracts host and pairingCode from standard pairing url", () => {
+    const parsed = parsePairingUrlFields("https://desk.example.com/pair#token=pair-secret");
+    expect(parsed).toEqual({
+      host: "https://desk.example.com",
+      pairingCode: "pair-secret",
+      pairingUrl: "https://desk.example.com/pair#token=pair-secret",
+    });
+  });
+
+  it("extracts tunnelToken from hash fragment and preserves pairingUrl", () => {
+    const url =
+      "https://tunnel-123.devtunnels.ms/pair#token=pair-secret&tunnelToken=tunnel-tok-456";
+    const parsed = parsePairingUrlFields(url);
+    expect(parsed).toEqual({
+      host: "https://tunnel-123.devtunnels.ms",
+      pairingCode: "pair-secret",
+      tunnelToken: "tunnel-tok-456",
+      pairingUrl: url,
+    });
+  });
+
+  it("keeps tunnel credentials out of query parameter parsing", () => {
+    const url =
+      "https://tunnel-123.devtunnels.ms/pair?token=pair-secret&tunnelToken=tunnel-tok-456";
+    const parsed = parsePairingUrlFields(url);
+    expect(parsed).toEqual({
+      host: "https://tunnel-123.devtunnels.ms",
+      pairingCode: "pair-secret",
+      pairingUrl: url,
+    });
+  });
+
+  it("passes tunnelToken and pairingUrl through parseRemotePairingFields", () => {
+    const result = parseRemotePairingFields({
+      host: "https://tunnel-123.devtunnels.ms",
+      pairingCode: "pair-code-123",
+      tunnelToken: "tunnel-token-abc",
+      pairingUrl:
+        "https://tunnel-123.devtunnels.ms/pair#token=pair-code-123&tunnelToken=tunnel-token-abc",
+    });
+    expect(result).toEqual({
+      host: "https://tunnel-123.devtunnels.ms",
+      pairingCode: "pair-code-123",
+      tunnelToken: "tunnel-token-abc",
+      pairingUrl:
+        "https://tunnel-123.devtunnels.ms/pair#token=pair-code-123&tunnelToken=tunnel-token-abc",
+    });
+  });
+
+  it("parses full pairing url pasted in host field via parseRemotePairingFields", () => {
+    const url =
+      "https://tunnel-123.devtunnels.ms/pair#token=pair-secret&tunnelToken=tunnel-tok-456";
+    const result = parseRemotePairingFields({
+      host: url,
+      pairingCode: "",
+    });
+    expect(result).toEqual({
+      host: "https://tunnel-123.devtunnels.ms",
+      pairingCode: "pair-secret",
+      tunnelToken: "tunnel-tok-456",
+      pairingUrl: url,
+    });
   });
 });

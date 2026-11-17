@@ -132,26 +132,31 @@ describe("command permissions", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const registry = yield* setup;
-        const tunnel = createCommandPermissions(runtime, WS_METHODS.serverSetDevTunnelEnabled);
-        registry.set(sessions(env), AsyncResult.success(grant(true)));
-        expect(registry.get(tunnel.permissionAtom(env))).toBe(false);
-        expect((yield* tunnel.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
-          "EnvironmentAuthorizationError",
-        );
-        registry.set(
-          sessions(env),
-          AsyncResult.success({
-            ...grant(false),
-            scopes: [AuthAccessWriteScope],
-            permissions: [AuthAccessWriteScope],
-          }),
-        );
-        expect(registry.get(tunnel.permissionAtom(env))).toBe(true);
-        yield* tunnel.authorize(registry, env);
-        registry.set(sessions(env), AsyncResult.success(grant(false)));
-        expect((yield* tunnel.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
-          "EnvironmentAuthorizationError",
-        );
+        for (const method of [
+          WS_METHODS.serverSetDevTunnelEnabled,
+          WS_METHODS.serverIssueDevTunnelToken,
+        ]) {
+          const tunnel = createCommandPermissions(runtime, method);
+          registry.set(sessions(env), AsyncResult.success(grant(true)));
+          expect(registry.get(tunnel.permissionAtom(env))).toBe(false);
+          expect((yield* tunnel.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+            "EnvironmentAuthorizationError",
+          );
+          registry.set(
+            sessions(env),
+            AsyncResult.success({
+              ...grant(false),
+              scopes: [AuthAccessWriteScope],
+              permissions: [AuthAccessWriteScope],
+            }),
+          );
+          expect(registry.get(tunnel.permissionAtom(env))).toBe(true);
+          yield* tunnel.authorize(registry, env);
+          registry.set(sessions(env), AsyncResult.success(grant(false)));
+          expect((yield* tunnel.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+            "EnvironmentAuthorizationError",
+          );
+        }
       }),
     ),
   );

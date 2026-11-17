@@ -2316,6 +2316,7 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.serverSubscribeDevTunnel]: () => devTunnel.changes,
         [WS_METHODS.serverSetDevTunnelEnabled]: ({ enabled }) => devTunnel.setEnabled(enabled),
+        [WS_METHODS.serverIssueDevTunnelToken]: () => devTunnel.issueConnectToken(),
         [WS_METHODS.serverProbe]: (_input) => Effect.succeed({}),
         [WS_METHODS.serverGetConfig]: (_input) =>
           loadServerConfig({

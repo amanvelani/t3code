@@ -69,6 +69,7 @@ function PairingForm({
   const [initialPairing] = useState(() => parsePairingUrl(routePairingUrl || connectionPairingUrl));
   const [hostInput, setHostInput] = useState(initialPairing.host);
   const [codeInput, setCodeInput] = useState(initialPairing.code);
+  const [tunnelToken, setTunnelToken] = useState<string | undefined>(initialPairing.tunnelToken);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // The user's own edit or submit dismisses the dev auto-connect report.
@@ -96,11 +97,32 @@ function PairingForm({
   };
 
   const handleHostChange = (value: string) => {
+    const trimmed = value.trim();
+    if (trimmed.includes("#") || trimmed.includes("?")) {
+      const parsed = parsePairingUrl(trimmed);
+      if (parsed.code || parsed.tunnelToken) {
+        setHostInput(parsed.host);
+        if (parsed.code) setCodeInput(parsed.code);
+        if (parsed.tunnelToken) setTunnelToken(parsed.tunnelToken);
+        clearError();
+        return;
+      }
+    }
     setHostInput(value);
     clearError();
   };
 
   const handleCodeChange = (value: string) => {
+    const trimmed = value.trim();
+    if (trimmed.includes("#") || trimmed.includes("?")) {
+      const parsed = parsePairingUrl(trimmed);
+      if (parsed.code) {
+        setCodeInput(parsed.code);
+        if (parsed.tunnelToken) setTunnelToken(parsed.tunnelToken);
+        clearError();
+        return;
+      }
+    }
     setCodeInput(value);
     clearError();
   };
@@ -131,9 +153,12 @@ function PairingForm({
 
     try {
       const pairingUrl = extractPairingUrlFromQrPayload(data);
-      const { host, code } = parsePairingUrl(pairingUrl);
+      const { host, code, tunnelToken: scannedTunnelToken } = parsePairingUrl(pairingUrl);
       setHostInput(host);
       setCodeInput(code);
+      if (scannedTunnelToken) {
+        setTunnelToken(scannedTunnelToken);
+      }
       onChangeConnectionPairingUrl(pairingUrl);
       setScanComplete(true);
       setScannerLocked(false);
@@ -150,7 +175,7 @@ function PairingForm({
   };
 
   const handleSubmit = async () => {
-    const pairingUrl = buildPairingUrl(hostInput, codeInput);
+    const pairingUrl = buildPairingUrl(hostInput, codeInput, tunnelToken);
     setOwnAttempt(true);
     setSubmitError(null);
     setIsSubmitting(true);

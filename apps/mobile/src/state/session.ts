@@ -71,9 +71,10 @@ const EMPTY_PREPARED_CONNECTION_ATOM = Atom.make(Option.none()).pipe(
 );
 
 export function usePreparedConnection(environmentId: EnvironmentId | null) {
-  return useAtomValue(
+  const connection = useAtomValue(
     environmentId === null
       ? EMPTY_PREPARED_CONNECTION_ATOM
       : environmentSession.preparedConnectionValueAtom(environmentId),
   );
+  return connection;
 }

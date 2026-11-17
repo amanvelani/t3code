@@ -1,4 +1,10 @@
-import { DevTunnelError, type DevTunnelState } from "@t3tools/contracts";
+import {
+  DevTunnelError,
+  type DevTunnelConnectToken,
+  type DevTunnelState,
+} from "@t3tools/contracts";
+import { devTunnelTokenExpiresAt } from "@t3tools/shared/remote";
+import * as Clock from "effect/Clock";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -31,12 +37,68 @@ const PersistedConfig = Schema.Struct({
 const configJson = Schema.fromJsonString(PersistedConfig);
 const decodeConfig = Schema.decodeUnknownEffect(configJson);
 const encodeConfig = Schema.encodeEffect(configJson);
+const decodeTokenOutput = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Struct({ token: Schema.String })),
+);
+
+const issueToken = Effect.fn("DevTunnel.issueToken")(function* (tunnelId: string, binary: string) {
+  const runner = yield* ProcessRunner.ProcessRunner;
+  const result = yield* runner
+    .run({
+      command: binary,
+      args: ["token", tunnelId, "--scopes", "connect", "--json"],
+      timeout: "30 seconds",
+      maxOutputBytes: 64 * 1024,
+    })
+    .pipe(Effect.mapError(() => new DevTunnelError({ reason: "start-failed" })));
+  if (result.code !== 0 || result.timedOut || result.stdoutTruncated) {
+    return yield* new DevTunnelError({ reason: "start-failed" });
+  }
+  const now = yield* Clock.currentTimeMillis;
+  const { token } = yield* decodeTokenOutput(result.stdout).pipe(
+    Effect.mapError(() => new DevTunnelError({ reason: "start-failed" })),
+  );
+  return yield* Effect.try({
+    try: () => {
+      const expiresAtEpochMs = devTunnelTokenExpiresAt(token) ?? 0;
+      if (!Number.isFinite(expiresAtEpochMs) || expiresAtEpochMs <= now) {
+        throw new Error("Invalid connect token expiry.");
+      }
+      return { token, expiresAtEpochMs };
+    },
+    catch: () => new DevTunnelError({ reason: "start-failed" }),
+  });
+});
+
+export const issuePersistedConnectToken = Effect.fn("DevTunnel.issuePersistedConnectToken")(
+  function* () {
+    const config = yield* ServerConfig.ServerConfig;
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const saved = yield* fs.readFileString(path.join(config.stateDir, "dev-tunnel.json")).pipe(
+      Effect.flatMap(decodeConfig),
+      Effect.mapError(() => new DevTunnelError({ reason: "not-running" })),
+    );
+    if (
+      !saved.enabled ||
+      !saved.tunnelId ||
+      !(yield* fs.exists(path.join(config.stateDir, "dev-tunnel-url")))
+    ) {
+      return yield* new DevTunnelError({ reason: "not-running" });
+    }
+    const binary = yield* Config.String("T3CODE_DEVTUNNEL_PATH").pipe(
+      Config.withDefault("devtunnel"),
+    );
+    return yield* issueToken(saved.tunnelId, binary);
+  },
+);
 
 export class DevTunnel extends Context.Service<
   DevTunnel,
   {
     readonly changes: Stream.Stream<DevTunnelState>;
     readonly setEnabled: (enabled: boolean) => Effect.Effect<DevTunnelState, DevTunnelError>;
+    readonly issueConnectToken: () => Effect.Effect<DevTunnelConnectToken, DevTunnelError>;
   }
 >()("t3/environment/DevTunnel") {}
 
@@ -325,7 +387,20 @@ export const make = Effect.gen(function* () {
         )
       : clearUrl,
   );
-  return DevTunnel.of({ changes: SubscriptionRef.changes(state), setEnabled });
+  const issueConnectToken = Effect.fn("DevTunnel.issueConnectToken")(function* () {
+    return yield* lock.withPermits(1)(
+      Effect.gen(function* () {
+        const current = yield* SubscriptionRef.get(state);
+        if (current.status !== "running" || !persisted.tunnelId) {
+          return yield* new DevTunnelError({ reason: "not-running" });
+        }
+        return yield* issueToken(persisted.tunnelId, binary).pipe(
+          Effect.provideService(ProcessRunner.ProcessRunner, runner),
+        );
+      }),
+    );
+  });
+  return DevTunnel.of({ changes: SubscriptionRef.changes(state), setEnabled, issueConnectToken });
 });
 
 export const layer = Layer.effect(DevTunnel, make).pipe(Layer.provide(ProcessRunner.layer));

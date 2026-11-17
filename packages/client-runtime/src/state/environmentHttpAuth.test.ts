@@ -665,4 +665,33 @@ describe("authenticated environment HTTP requests", () => {
       expect(harness.calls).toEqual([]);
     }),
   );
+
+  it.effect(
+    "attaches X-Tunnel-Authorization header to environment requests for Dev Tunnel connections",
+    () =>
+      Effect.gen(function* () {
+        const devTunnelUrl = "https://my-tunnel-3773.usw2.devtunnels.ms/";
+        const harness = makeHarness(() => Response.json(SESSION));
+        const devTunnelPrepared: PreparedConnection = {
+          environmentId: TARGET.environmentId,
+          label: "Dev Tunnel Environment",
+          httpBaseUrl: devTunnelUrl,
+          socketUrl: "wss://my-tunnel-3773.usw2.devtunnels.ms/ws",
+          httpAuthorization: { _tag: "Bearer", token: "bearer-token" },
+          target: TARGET,
+          tunnelToken: "secret-tunnel-http-token",
+        };
+
+        const result = yield* fetchEnvironmentSessionState({
+          prepared: devTunnelPrepared,
+          signer: Option.none(),
+        }).pipe(Effect.provide(harness.httpLayer));
+
+        expect(result).toEqual(SESSION);
+        expect(harness.calls).toHaveLength(1);
+        const headers = new Headers(harness.calls[0]!.init.headers);
+        expect(headers.get("x-tunnel-authorization")).toBe("tunnel secret-tunnel-http-token");
+        expect(headers.get("authorization")).toBe("Bearer bearer-token");
+      }),
+  );
 });

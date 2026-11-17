@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Effect from "effect/Effect";
+import * as Socket from "effect/socket/Socket";
 import * as Tracer from "effect/Tracer";
 
 afterEach(() => {
@@ -66,4 +67,56 @@ describe("web runtime relay telemetry policy", () => {
 
     expect(fetchFn).not.toHaveBeenCalled();
   });
+});
+
+describe("web runtime WebSocketConstructor", () => {
+  it.effect("allows options objects in desktop by delegating headers to main process", () =>
+    Effect.gen(function* () {
+      class MockWebSocket {
+        constructor(
+          public url: string,
+          public protocols?: unknown,
+        ) {}
+      }
+      vi.stubGlobal("WebSocket", MockWebSocket);
+      vi.stubGlobal("window", { desktopBridge: {} });
+      const { layerWebSocketConstructor } = yield* Effect.promise(() => import("./runtime"));
+      const wsConstructor = yield* Socket.WebSocketConstructor.pipe(
+        Effect.provide(layerWebSocketConstructor),
+      );
+
+      const ws = wsConstructor("wss://test.devtunnels.ms/ws", {
+        headers: { "X-Tunnel-Authorization": "tunnel token123" },
+        protocols: "chat",
+      } as any);
+      expect(ws).toBeInstanceOf(MockWebSocket);
+      expect((ws as any).protocols).toBe("chat");
+    }),
+  );
+
+  it.effect("rejects options objects in ordinary browser runtime", () =>
+    Effect.gen(function* () {
+      class MockWebSocket {
+        constructor(
+          public url: string,
+          public protocols?: unknown,
+        ) {}
+      }
+      vi.stubGlobal("WebSocket", MockWebSocket);
+      vi.stubGlobal("window", {});
+      const { layerWebSocketConstructor } = yield* Effect.promise(() => import("./runtime"));
+      const wsConstructor = yield* Socket.WebSocketConstructor.pipe(
+        Effect.provide(layerWebSocketConstructor),
+      );
+
+      expect(() =>
+        wsConstructor("wss://test.devtunnels.ms/ws", {
+          headers: { "X-Tunnel-Authorization": "tunnel token123" },
+        } as any),
+      ).toThrow(TypeError);
+
+      const ws = wsConstructor("wss://test.devtunnels.ms/ws", "chat");
+      expect(ws).toBeInstanceOf(MockWebSocket);
+    }),
+  );
 });

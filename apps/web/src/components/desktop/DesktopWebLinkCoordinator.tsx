@@ -6,7 +6,16 @@ import {
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { promptLinkAppPath } from "@t3tools/shared/promptLinks";
-import { readPairingAppLink, resolveRemotePairingTarget } from "@t3tools/shared/remote";
+import {
+  isDevTunnelUrl,
+  readPairingAppLink,
+  resolveRemotePairingTarget,
+} from "@t3tools/shared/remote";
+import { isHostedStaticApp } from "../../hostedPairing";
+import {
+  isDevTunnelAuthCallback,
+  consumeDevTunnelAuthCallback,
+} from "../../connection/devTunnelAuth";
 import { useRouter } from "@tanstack/react-router";
 import * as Effect from "effect/Effect";
 import { AtomRegistry } from "effect/reactivity";
@@ -91,6 +100,9 @@ export function DesktopWebLinkCoordinator() {
     refresh: true,
   });
   const connectPairingEnvironment = useAtomCommand(connectPairing, { reportFailure: false });
+  const consumeAuthCallback = useAtomCommand(consumeDevTunnelAuthCallback, {
+    reportFailure: false,
+  });
   const httpBaseUrl = useEnvironmentHttpBaseUrl(primaryEnvironment?.environmentId ?? null);
   const queueRef = useRef(Promise.resolve());
   const pairedUrlsRef = useRef(new Set<string>());
@@ -125,10 +137,21 @@ export function DesktopWebLinkCoordinator() {
     if (pairedUrlsRef.current.has(pairingUrl)) return;
     // The origin keeps the scheme visible, so a plain HTTP backend is not mistaken for HTTPS.
     let origin: string;
+    let isTunnel = false;
     try {
-      origin = new URL(resolveRemotePairingTarget({ pairingUrl }).httpBaseUrl).origin;
+      const resolved = resolveRemotePairingTarget({ pairingUrl });
+      origin = new URL(resolved.httpBaseUrl).origin;
+      isTunnel = Boolean(resolved.tunnelToken) || isDevTunnelUrl(resolved.httpBaseUrl);
     } catch (error) {
       reportPairingFailure(error);
+      return;
+    }
+    if (isHostedStaticApp() && isTunnel) {
+      reportPairingFailure(
+        new Error(
+          "Private Dev Tunnels are not supported in the hosted web app. Use the T3 Code desktop app or connect directly.",
+        ),
+      );
       return;
     }
     const confirmed = (await requestConfirmDialog(`Add the backend at ${origin}?`)) ?? false;
@@ -201,8 +224,44 @@ export function DesktopWebLinkCoordinator() {
   });
 
   const openLink = useEffectEvent(async (url: string) => {
-    const pairingUrl = readPairingAppLink(url);
-    if (pairingUrl !== null) {
+    if (isDevTunnelAuthCallback(url)) {
+      const result = await consumeAuthCallback(url);
+      if (result._tag === "Failure") {
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Dev Tunnel sign-in failed",
+              description:
+                error instanceof Error ? error.message : "Failed to authenticate Dev Tunnel.",
+            }),
+          );
+        }
+      } else if (!result.value) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Dev Tunnel sign-in failed",
+            description: "No pending sign-in request matched this response.",
+          }),
+        );
+      } else {
+        toastManager.add({
+          type: "success",
+          title: "Dev Tunnel reconnected",
+          description: "Authenticated and reconnecting Dev Tunnel route.",
+        });
+      }
+      return;
+    }
+    const rawPairingUrl = readPairingAppLink(url);
+    if (rawPairingUrl !== null) {
+      let pairingUrl = rawPairingUrl;
+      if (!pairingUrl.includes("#") && url.includes("#")) {
+        const hash = url.slice(url.indexOf("#"));
+        pairingUrl = `${pairingUrl}${hash}`;
+      }
       await pairFromLink(pairingUrl);
       return;
     }

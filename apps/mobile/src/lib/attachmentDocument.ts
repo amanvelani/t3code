@@ -18,6 +18,7 @@ import { localAttachmentPreviewAtom, localAttachmentPreviewState } from "./local
 import { downloadAndShareAttachment, shareLocalAttachment } from "./attachmentDownload";
 import { refreshAssetUrl, useFreshAssetUrl, useRefreshAssetUrl } from "../state/assets";
 import { attachmentDocumentPresentation } from "./attachmentDocumentPresentation";
+import { devTunnelHeaders } from "./devTunnelHeaders";
 
 const isLocalUri = (uri: string) => /^(file|content):/.test(uri);
 
@@ -48,11 +49,13 @@ async function readAttachmentText(key: AttachmentTextKey, signal: AbortSignal) {
     if (!refreshed) throw new Error("Reconnect to this environment and try again.");
     target = refreshed;
   }
+  const tunnelHeaders = devTunnelHeaders(target, key.environmentId ?? undefined);
   const response = await fetch(target, {
     signal,
     headers: {
       ...(key.sizeBytes > 0 ? { Range: `bytes=0-${FILE_TEXT_PREVIEW_MAX_BYTES}` } : {}),
       ...(key.revision > 0 ? { "Cache-Control": "no-cache" } : {}),
+      ...tunnelHeaders,
     },
   });
   return readFilePreviewResponse(response, signal);

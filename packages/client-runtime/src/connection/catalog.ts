@@ -61,6 +61,7 @@ export class BearerConnectionCredential extends Schema.TaggedClass<BearerConnect
   "BearerConnectionCredential",
   {
     token: Schema.String,
+    tunnelToken: Schema.optionalKey(Schema.String),
   },
 ) {}
 

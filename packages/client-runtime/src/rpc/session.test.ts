@@ -218,7 +218,9 @@ const makeFactory = Effect.fn("TestRpcSessionFactory.make")(function* (
 ) {
   const sentChanges = yield* Queue.unbounded<void>();
   const sockets = Object.assign([] as TestWebSocket[], { changes: yield* Queue.unbounded<void>() });
-  const layerConstructor = Layer.succeed(Socket.WebSocketConstructor, (url) => {
+  const socketOptions: unknown[] = [];
+  const layerConstructor = Layer.succeed(Socket.WebSocketConstructor, (url, options) => {
+    socketOptions.push(options);
     const socket = new TestWebSocket(url, sentChanges);
     sockets.push(socket);
     Queue.offerUnsafe(sockets.changes, undefined);
@@ -226,7 +228,7 @@ const makeFactory = Effect.fn("TestRpcSessionFactory.make")(function* (
   });
   const layer = RpcSession.layer(options).pipe(Layer.provide(layerConstructor));
   const factory = yield* RpcSession.RpcSessionFactory.pipe(Effect.provide(layer));
-  return { factory, sockets };
+  return { factory, sockets, socketOptions };
 });
 
 const awaitSocket = Effect.fn("TestRpcSessionFactory.awaitSocket")(function* (
@@ -1080,5 +1082,42 @@ describe("RpcSessionFactory", () => {
       expect(config.issues).toEqual([]);
       expect(config.availableEditors).toEqual(["zed"]);
     }),
+  );
+
+  it.effect(
+    "passes X-Tunnel-Authorization header via Socket.layerWebSocket options for Dev Tunnel connections",
+    () =>
+      Effect.gen(function* () {
+        const { factory, sockets, socketOptions } = yield* makeFactory();
+        const devTunnelPrepared: PreparedConnection = {
+          environmentId: TARGET.environmentId,
+          label: "Dev Tunnel Environment",
+          httpBaseUrl: "https://my-tunnel-3773.usw2.devtunnels.ms/",
+          socketUrl: "wss://my-tunnel-3773.usw2.devtunnels.ms/ws?wsTicket=test",
+          httpAuthorization: null,
+          target: new PrimaryConnectionTarget({
+            environmentId: TARGET.environmentId,
+            label: "Dev Tunnel Environment",
+            httpBaseUrl: "https://my-tunnel-3773.usw2.devtunnels.ms/",
+            wsBaseUrl: "wss://my-tunnel-3773.usw2.devtunnels.ms/",
+          }),
+          tunnelToken: "secret-tunnel-ws-token",
+        };
+
+        const session = yield* factory.connect(devTunnelPrepared);
+        const readyFiber = yield* Effect.forkChild(session.ready);
+        const socket = yield* awaitSocket(sockets);
+        socket.open();
+        yield* completeInitialConfig(socket);
+        yield* Fiber.join(readyFiber);
+
+        expect(socketOptions[0]).toEqual(
+          expect.objectContaining({
+            headers: {
+              "X-Tunnel-Authorization": "tunnel secret-tunnel-ws-token",
+            },
+          }),
+        );
+      }),
   );
 });

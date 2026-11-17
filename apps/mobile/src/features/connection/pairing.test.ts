@@ -20,6 +20,29 @@ describe("buildPairingUrl", () => {
       "https://192.168.1.100:3773/#token=pairing-token",
     );
   });
+
+  it("preserves tunnelToken passed as string", () => {
+    expect(buildPairingUrl("my-tunnel.devtunnels.ms", "pairing-token", "tunnel-secret-123")).toBe(
+      "https://my-tunnel.devtunnels.ms/#token=pairing-token&tunnelToken=tunnel-secret-123",
+    );
+  });
+
+  it("preserves tunnelToken passed as options object", () => {
+    expect(
+      buildPairingUrl("my-tunnel.devtunnels.ms", "pairing-token", {
+        tunnelToken: "tunnel-secret-456",
+      }),
+    ).toBe("https://my-tunnel.devtunnels.ms/#token=pairing-token&tunnelToken=tunnel-secret-456");
+  });
+
+  it("preserves tunnelToken already present in host hash", () => {
+    expect(
+      buildPairingUrl(
+        "https://my-tunnel.devtunnels.ms/#tunnelToken=tunnel-secret-789",
+        "pairing-token",
+      ),
+    ).toBe("https://my-tunnel.devtunnels.ms/#token=pairing-token&tunnelToken=tunnel-secret-789");
+  });
 });
 
 describe("extractPairingUrlFromQrPayload", () => {
@@ -29,6 +52,14 @@ describe("extractPairingUrlFromQrPayload", () => {
         "t3code://pair?pairingUrl=https%3A%2F%2Fremote.example.com%2Fpair%23token%3Dpairing-token",
       ),
     ).toBe("https://remote.example.com/pair#token=pairing-token");
+  });
+
+  it("unwraps mobile deep links carrying token and tunnelToken", () => {
+    expect(
+      extractPairingUrlFromQrPayload(
+        "t3code://pair?pairingUrl=https%3A%2F%2Fmy-tunnel.devtunnels.ms%23token%3Dtok%26tunnelToken%3Dtun",
+      ),
+    ).toBe("https://my-tunnel.devtunnels.ms#token=tok&tunnelToken=tun");
   });
 });
 
@@ -41,6 +72,26 @@ describe("parsePairingUrl", () => {
     ).toEqual({
       host: "https://desktop.tailnet.ts.net",
       code: "pairing-token",
+    });
+  });
+
+  it("parses dev tunnel URL with token and tunnelToken in hash", () => {
+    expect(
+      parsePairingUrl(
+        "https://my-tunnel.devtunnels.ms/#token=pairing-code-1&tunnelToken=tunnel-token-2",
+      ),
+    ).toEqual({
+      host: "https://my-tunnel.devtunnels.ms",
+      code: "pairing-code-1",
+      tunnelToken: "tunnel-token-2",
+    });
+  });
+
+  it("parses schemeless input with token and tunnelToken", () => {
+    expect(parsePairingUrl("my-tunnel.devtunnels.ms#token=code-3&tunnelToken=token-4")).toEqual({
+      host: "https://my-tunnel.devtunnels.ms",
+      code: "code-3",
+      tunnelToken: "token-4",
     });
   });
 });

@@ -9,12 +9,13 @@ import {
   type EnvironmentScopeRequiredError,
 } from "@t3tools/contracts";
 import * as HttpObservability from "@t3tools/shared/httpObservability";
+import { devTunnelRequestHeaders, isDevTunnelUrl } from "@t3tools/shared/remote";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import { FetchHttpClient, HttpClient, HttpClientError } from "effect/http";
+import { FetchHttpClient, HttpClient, HttpClientError, HttpClientRequest } from "effect/http";
 import * as HttpApiClient from "effect/http-api/HttpApiClient";
 
 const isEnvironmentHttpCommonError = Schema.is(EnvironmentHttpCommonError);
@@ -99,14 +100,43 @@ export const makeEnvironmentHttpApiGroupClient = <
 >(
   httpBaseUrl: string,
   group: Group,
+  options?: { readonly tunnelToken?: string | undefined },
 ) =>
-  Effect.flatMap(HttpClient.HttpClient, (httpClient) =>
-    HttpApiClient.group(EnvironmentHttpApi, {
+  Effect.flatMap(HttpClient.HttpClient, (baseHttpClient) => {
+    const devTunnelHeaders = devTunnelRequestHeaders(httpBaseUrl, options?.tunnelToken);
+    const hasHeaders = Object.keys(devTunnelHeaders).length > 0;
+    const baseOrigin = hasHeaders ? new URL(httpBaseUrl).origin : null;
+
+    const httpClient = hasHeaders
+      ? baseHttpClient.pipe(
+          HttpClient.mapRequest((req) => {
+            try {
+              const reqUrl = new URL(req.url, httpBaseUrl);
+              if (reqUrl.origin === baseOrigin && isDevTunnelUrl(reqUrl)) {
+                return HttpClientRequest.setHeaders(req, devTunnelHeaders);
+              }
+            } catch {}
+            return HttpClientRequest.removeHeader(req, "x-tunnel-authorization");
+          }),
+          HttpClient.transformResponse((response) =>
+            Effect.flatMap(Effect.serviceOption(FetchHttpClient.RequestInit), (init) =>
+              response.pipe(
+                Effect.provideService(FetchHttpClient.RequestInit, {
+                  ...Option.getOrElse(init, () => ({})),
+                  redirect: "error",
+                }),
+              ),
+            ),
+          ),
+        )
+      : baseHttpClient;
+
+    return HttpApiClient.group(EnvironmentHttpApi, {
       httpClient,
       group,
       baseUrl: remoteApiBaseUrl(httpBaseUrl),
-    }),
-  );
+    });
+  });
 
 export const makeEnvironmentHttpApiUrlBuilder = (httpBaseUrl: string) =>
   HttpApiClient.urlBuilder(EnvironmentHttpApi, {

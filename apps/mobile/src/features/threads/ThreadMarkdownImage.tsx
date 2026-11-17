@@ -22,6 +22,7 @@ import { useAssetUrlState } from "../../state/assets";
 import { WorkspaceMutationIdContext } from "./workspaceMutationIdContext";
 import { ZoomableImagePressable } from "./ZoomableImagePressable";
 import { assetImageCacheKey } from "../../lib/assetImageSource";
+import { devTunnelHeaders } from "../../lib/devTunnelHeaders";
 import {
   MARKDOWN_IMAGE_MAX_WIDTH,
   type MarkdownImageDisplaySize,
@@ -50,7 +51,8 @@ async function readSvgXml(uri: string, signal: AbortSignal): Promise<string> {
       : content;
   }
   // expo/fetch, not the runtime HttpClient: it is the one that reads file:// URIs.
-  const response = await fetch(uri, { signal });
+  const headers = devTunnelHeaders(uri);
+  const response = await fetch(uri, { signal, ...(headers ? { headers } : {}) });
   if (!response.ok && !(response.status === 0 && uri.startsWith("file://")))
     throw new Error(`SVG request failed: ${response.status}`);
   return response.text();
@@ -228,11 +230,16 @@ function ThreadMarkdownImageRequest(props: {
   readonly onError: () => void;
 }) {
   const [loaded, setLoaded] = useState(false);
+  const headers = devTunnelHeaders(props.uri);
 
   return (
     <>
       <Image
-        source={{ uri: props.uri, cacheKey: props.cacheKey }}
+        source={{
+          uri: props.uri,
+          cacheKey: props.cacheKey,
+          ...(headers ? { headers } : {}),
+        }}
         contentFit="contain"
         cachePolicy="memory-disk"
         accessible={false}

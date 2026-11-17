@@ -1,5 +1,5 @@
 import type { DesktopSshEnvironmentTarget, EnvironmentId } from "@t3tools/contracts";
-import { resolveRemotePairingTarget } from "@t3tools/shared/remote";
+import { isDevTunnelUrl, resolveRemotePairingTarget } from "@t3tools/shared/remote";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -27,18 +27,20 @@ import {
   BearerConnectionTarget,
   ConnectionBlockedError,
   SshConnectionTarget,
+  assertTunnelTokenNotExpired,
   type ConnectionAttemptError,
 } from "./model.ts";
 import * as Persistence from "../platform/persistence.ts";
 import * as EnvironmentRegistry from "./registry.ts";
 import { orchestrationProtocolCompatibilityError } from "./compatibility.ts";
-import { connectionRoutes, routeEntry, sshTargetKey } from "./routes.ts";
+import { connectionRoutes, routeEntry, routeHttpBaseUrl, sshTargetKey } from "./routes.ts";
 
 export interface PairingConnectionInput {
   readonly pairingUrl?: string;
   readonly host?: string;
   readonly pairingCode?: string;
   readonly expectedEnvironmentId?: EnvironmentId;
+  readonly tunnelToken?: string;
 }
 
 export interface SshConnectionInput {
@@ -51,6 +53,7 @@ export interface BearerConnectionUpdateInput {
   readonly environmentId: EnvironmentId;
   readonly label: string;
   readonly httpBaseUrl: string;
+  readonly tunnelToken?: string;
 }
 
 export class ConnectionOnboarding extends Context.Service<
@@ -103,8 +106,64 @@ export const preparePairingRegistration = Effect.fn(
 )(function* (input: PairingConnectionInput) {
   const target = yield* resolvePairingTarget(input);
   const presentation = yield* ClientCapabilities.ClientPresentation;
+
+  const registryOption = yield* Effect.serviceOption(EnvironmentRegistry.EnvironmentRegistry);
+  const credentialsOption = yield* Effect.serviceOption(
+    ConnectionCredentialStore.ConnectionCredentialStore,
+  );
+
+  let effectiveTunnelToken = target.tunnelToken;
+  if (effectiveTunnelToken === undefined && Option.isSome(credentialsOption)) {
+    const credentials = credentialsOption.value;
+    if (input.expectedEnvironmentId !== undefined) {
+      const candidateConnectionId = bearerConnectionId(
+        input.expectedEnvironmentId,
+        target.httpBaseUrl,
+      );
+      const existing = yield* credentials
+        .get(candidateConnectionId)
+        .pipe(Effect.catch(() => Effect.succeedNone));
+      if (
+        Option.isSome(existing) &&
+        isBearerCredential(existing.value) &&
+        existing.value.tunnelToken !== undefined
+      ) {
+        effectiveTunnelToken = existing.value.tunnelToken;
+      }
+    }
+    if (effectiveTunnelToken === undefined && Option.isSome(registryOption)) {
+      const entries = yield* SubscriptionRef.get(registryOption.value.entries);
+      for (const entry of entries.values()) {
+        for (const route of connectionRoutes(entry)) {
+          if (
+            route.target._tag === "BearerConnectionTarget" &&
+            routeHttpBaseUrl(route) === target.httpBaseUrl
+          ) {
+            const existing = yield* credentials
+              .get(route.target.connectionId)
+              .pipe(Effect.catch(() => Effect.succeedNone));
+            if (
+              Option.isSome(existing) &&
+              isBearerCredential(existing.value) &&
+              existing.value.tunnelToken !== undefined
+            ) {
+              effectiveTunnelToken = existing.value.tunnelToken;
+              break;
+            }
+          }
+        }
+        if (effectiveTunnelToken !== undefined) break;
+      }
+    }
+  }
+
+  if (effectiveTunnelToken !== undefined && isDevTunnelUrl(target.httpBaseUrl)) {
+    yield* assertTunnelTokenNotExpired(effectiveTunnelToken);
+  }
+
   const descriptor = yield* fetchRemoteEnvironmentDescriptor({
     httpBaseUrl: target.httpBaseUrl,
+    tunnelToken: effectiveTunnelToken,
   }).pipe(Effect.mapError(mapRemoteEnvironmentError));
   // Checked before redeeming the one-time code, so a wrong link is not spent.
   if (
@@ -113,6 +172,24 @@ export const preparePairingRegistration = Effect.fn(
   ) {
     return yield* differentMachineError(descriptor.label);
   }
+
+  if (effectiveTunnelToken === undefined && Option.isSome(credentialsOption)) {
+    const connectionId = bearerConnectionId(descriptor.environmentId, target.httpBaseUrl);
+    const existing = yield* credentialsOption.value
+      .get(connectionId)
+      .pipe(Effect.catch(() => Effect.succeedNone));
+    if (
+      Option.isSome(existing) &&
+      isBearerCredential(existing.value) &&
+      existing.value.tunnelToken !== undefined
+    ) {
+      effectiveTunnelToken = existing.value.tunnelToken;
+      if (isDevTunnelUrl(target.httpBaseUrl)) {
+        yield* assertTunnelTokenNotExpired(effectiveTunnelToken);
+      }
+    }
+  }
+
   const connectionId = bearerConnectionId(descriptor.environmentId, target.httpBaseUrl);
   const route = {
     target: new BearerConnectionTarget({
@@ -142,12 +219,16 @@ export const preparePairingRegistration = Effect.fn(
     httpBaseUrl: target.httpBaseUrl,
     credential: target.credential,
     clientMetadata: presentation.metadata,
+    tunnelToken: effectiveTunnelToken,
   }).pipe(Effect.mapError(mapRemoteEnvironmentError));
 
   return new BearerConnectionRegistration({
     ...route,
     credential: new BearerConnectionCredential({
       token: access.access_token,
+      ...(isDevTunnelUrl(target.httpBaseUrl) && effectiveTunnelToken !== undefined
+        ? { tunnelToken: effectiveTunnelToken }
+        : {}),
     }),
   });
 });
@@ -240,6 +321,36 @@ export const prepareBearerConnectionUpdate = Effect.fn(
         detail: cause instanceof Error ? cause.message : "The environment URL is invalid.",
       }),
   });
+
+  if (
+    options.input.tunnelToken !== undefined &&
+    options.input.tunnelToken !== "" &&
+    !isDevTunnelUrl(httpBaseUrl)
+  ) {
+    return yield* new ConnectionBlockedError({
+      reason: "configuration",
+      detail: "Dev Tunnel token is only permitted for https://*.devtunnels.ms endpoints.",
+    });
+  }
+
+  const effectiveTunnelToken =
+    options.input.tunnelToken !== undefined
+      ? options.input.tunnelToken === ""
+        ? undefined
+        : options.input.tunnelToken
+      : new URL(httpBaseUrl).origin === new URL(entry.profile.value.httpBaseUrl).origin
+        ? credential.value.tunnelToken
+        : undefined;
+
+  const storedTunnelToken =
+    isDevTunnelUrl(httpBaseUrl) && effectiveTunnelToken !== undefined
+      ? effectiveTunnelToken
+      : undefined;
+
+  if (storedTunnelToken !== undefined) {
+    yield* assertTunnelTokenNotExpired(storedTunnelToken);
+  }
+
   const connectionId = entry.target.connectionId;
   return new BearerConnectionRegistration({
     target: new BearerConnectionTarget({
@@ -254,7 +365,10 @@ export const prepareBearerConnectionUpdate = Effect.fn(
       httpBaseUrl,
       wsBaseUrl: deriveWsBaseUrl(httpBaseUrl),
     }),
-    credential: credential.value,
+    credential: new BearerConnectionCredential({
+      token: credential.value.token,
+      ...(storedTunnelToken !== undefined ? { tunnelToken: storedTunnelToken } : {}),
+    }),
   });
 });
 
@@ -314,6 +428,7 @@ export const make = Effect.gen(function* () {
       Effect.provideService(EnvironmentRegistry.EnvironmentRegistry, registry),
       Effect.provideService(ClientCapabilities.ClientPresentation, presentation),
       Effect.provideService(HttpClient.HttpClient, httpClient),
+      Effect.provideService(ConnectionCredentialStore.ConnectionCredentialStore, credentials),
     ),
     registerSsh: Effect.fnUntraced(
       function* (input) {

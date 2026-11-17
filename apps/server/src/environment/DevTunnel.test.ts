@@ -27,6 +27,7 @@ const setup = (
     currentCliOutput?: boolean;
     waitForReady?: boolean;
     remoteAllowed?: boolean;
+    tokenOutput?: string;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -55,7 +56,12 @@ const setup = (
           : Effect.sync(() => {
               calls.push(args);
               return {
-                stdout: options.loggedIn === false ? "Not logged in." : "Logged in.",
+                stdout:
+                  args[0] === "token"
+                    ? (options.tokenOutput ?? JSON.stringify({ token: "invalid" }))
+                    : options.loggedIn === false
+                      ? "Not logged in."
+                      : "Logged in.",
                 stderr: "",
                 code: ChildProcessSpawner.ExitCode(0),
                 timedOut: false,
@@ -124,10 +130,72 @@ const setup = (
       ),
     );
     const service = yield* make;
-    return { service, make, fs, path, config, calls, exited, hostStarted, stops: () => stops };
+    return {
+      service,
+      make,
+      fs,
+      path,
+      config,
+      runner,
+      calls,
+      exited,
+      hostStarted,
+      stops: () => stops,
+    };
   });
 
 describe("Dev Tunnels", () => {
+  it.effect("issues connect credentials only while hosting and reads their actual expiry", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const expiresAtEpochMs = 4_102_444_800_000;
+        const token = `eyJhbGciOiJSUzI1NiJ9.${Buffer.from(JSON.stringify({ exp: expiresAtEpochMs / 1000 })).toString("base64url")}.signature`;
+        const h = yield* setup({ tokenOutput: JSON.stringify({ token }) });
+        expect(yield* Effect.result(h.service.issueConnectToken())).toMatchObject({
+          _tag: "Failure",
+          failure: { reason: "not-running" },
+        });
+        yield* h.service.setEnabled(true);
+        expect(yield* h.service.issueConnectToken()).toEqual({ token, expiresAtEpochMs });
+        expect(
+          yield* DevTunnel.issuePersistedConnectToken().pipe(
+            Effect.provideService(ServerConfig.ServerConfig, h.config),
+            Effect.provideService(ProcessRunner.ProcessRunner, h.runner),
+          ),
+        ).toEqual({ token, expiresAtEpochMs });
+        expect(h.calls.at(-1)).toEqual([
+          "token",
+          expect.any(String),
+          "--scopes",
+          "connect",
+          "--json",
+        ]);
+        yield* h.service.setEnabled(false);
+        expect(yield* Effect.result(h.service.issueConnectToken())).toMatchObject({
+          _tag: "Failure",
+          failure: { reason: "not-running" },
+        });
+      }),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+  );
+
+  it.effect("rejects malformed and expired connect credentials without exposing CLI output", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        for (const tokenOutput of [
+          "not json",
+          JSON.stringify({ token: "invalid" }),
+          JSON.stringify({ token: "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjB9.signature" }),
+        ]) {
+          const h = yield* setup({ tokenOutput });
+          yield* h.service.setEnabled(true);
+          const result = yield* Effect.result(h.service.issueConnectToken());
+          expect(result).toMatchObject({ _tag: "Failure", failure: { reason: "start-failed" } });
+          if (result._tag === "Failure") expect(result.failure.message).not.toContain(tokenOutput);
+        }
+      }),
+    ).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
+  );
   it.effect("refuses remote hosting under managed policy before spawning a process", () =>
     Effect.scoped(
       Effect.gen(function* () {

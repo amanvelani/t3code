@@ -4,6 +4,7 @@ import type { SharingOptions } from "expo-sharing";
 
 import { beginForegroundHandoff } from "./foreground-handoff";
 import { uuidv4 } from "./uuid";
+import { devTunnelHeaders } from "./devTunnelHeaders";
 
 const ATTACHMENT_DOWNLOAD_DIRECTORY = "t3-attachment-downloads";
 const DOWNLOAD_RETENTION_MS = 24 * 60 * 60_000;
@@ -180,7 +181,11 @@ export async function openAttachmentInViewer(input: {
     if (/^(file|content):/.test(input.uri)) {
       await new File(input.uri).copy(cached.file);
     } else {
-      await File.downloadFileAsync(input.uri, cached.file, { signal: input.signal });
+      const headers = devTunnelHeaders(input.uri);
+      await File.downloadFileAsync(input.uri, cached.file, {
+        signal: input.signal,
+        ...(headers ? { headers } : {}),
+      });
     }
     if (input.signal.aborted) return;
     const endHandoff = beginForegroundHandoff();
@@ -214,7 +219,11 @@ export async function downloadAttachmentForPreview(input: {
       cached.preview.dispose();
       return null;
     }
-    await File.downloadFileAsync(input.url, cached.file, { signal: input.signal });
+    const headers = devTunnelHeaders(input.url);
+    await File.downloadFileAsync(input.url, cached.file, {
+      signal: input.signal,
+      ...(headers ? { headers } : {}),
+    });
     if (input.signal.aborted) {
       cached.preview.dispose();
       return null;

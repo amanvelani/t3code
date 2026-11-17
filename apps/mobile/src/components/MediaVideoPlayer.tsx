@@ -15,6 +15,7 @@ import { type MediaActionsSource } from "../lib/mediaActionsSource";
 import { useMediaVideoPlayback } from "../lib/useMediaVideoPlayback";
 import { MediaActionsMenu } from "./MediaActionsMenu";
 import { createAudioPlaybackSession } from "../lib/audioSession";
+import { devTunnelHeaders } from "../lib/devTunnelHeaders";
 
 function LoadedMediaVideo(props: {
   readonly uri: string;
@@ -74,7 +75,12 @@ function LoadedMediaVideo(props: {
     if (uri === null) throw new Error("Video unavailable");
     playback.pause();
     previousPlaybackRequested.current = false;
-    await player.replaceAsync({ uri, contentType: "progressive" });
+    const headers = devTunnelHeaders(uri);
+    await player.replaceAsync({
+      uri,
+      contentType: "progressive",
+      ...(headers ? { headers } : {}),
+    });
     if (!signal.aborted && props.playRequested) await playIfUninterrupted();
   });
 

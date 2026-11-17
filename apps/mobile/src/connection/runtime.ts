@@ -14,6 +14,7 @@ import * as Runtime from "../lib/runtime";
 import { appAtomRegistry } from "../state/atom-registry";
 import * as BackgroundActivity from "./background-activity";
 import * as ConnectionPlatform from "./platform";
+import { layerActiveDevTunnels } from "../lib/devTunnelHeaders";
 
 declare const module: { readonly hot?: FoundationHotModule } | undefined;
 
@@ -24,6 +25,7 @@ const layerSnapshotLoader = Layer.mergeAll(
   BoundedThreadSnapshotLoader.layer,
   ShellSnapshotLoader.layer,
   ThreadHistoryController.layer,
+  layerActiveDevTunnels,
 );
 
 type ConnectionLayerSource =

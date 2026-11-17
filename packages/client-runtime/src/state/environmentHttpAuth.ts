@@ -147,7 +147,7 @@ const executeEnvironmentRequest = Effect.fnUntraced(function* <
 >(input: {
   readonly prepared: Pick<
     PreparedConnection,
-    "environmentId" | "httpBaseUrl" | "httpAuthorization" | "target"
+    "environmentId" | "httpBaseUrl" | "httpAuthorization" | "target" | "tunnelToken"
   >;
   readonly signer: Option.Option<ManagedRelay.ManagedRelayDpopSigner["Service"]>;
   readonly remoteAuthorization?: Option.Option<
@@ -212,7 +212,9 @@ const executeEnvironmentRequest = Effect.fnUntraced(function* <
       }
 
       const requestUrl = requestUrlFor(httpBaseUrl);
-      const client = yield* makeEnvironmentHttpApiGroupClient(httpBaseUrl, input.group);
+      const client = yield* makeEnvironmentHttpApiGroupClient(httpBaseUrl, input.group, {
+        tunnelToken: input.prepared.tunnelToken,
+      });
       const headers = yield* buildEnvironmentAuthHeaders(
         authorization,
         input.method,

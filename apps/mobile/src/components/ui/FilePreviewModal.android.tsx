@@ -1,3 +1,4 @@
+import { devTunnelHeaders } from "../../lib/devTunnelHeaders";
 import { Button } from "./Button";
 import * as Dialog from "./Dialog";
 import { createContext, useContext, useEffect, useEffectEvent } from "react";
@@ -149,7 +150,9 @@ function ImagePreviewHeader(header: { readonly imageIndex: number }) {
 // Images still resolving show the viewer's loading page, and remount by key once their URL arrives.
 function imageViewingProps(source: FilePreviewImages) {
   return {
-    images: source.images.map((image) => (image.uri ? { uri: image.uri } : {})),
+    images: source.images.map((image) =>
+      image.uri ? { uri: image.uri, headers: devTunnelHeaders(image.uri) } : {},
+    ),
     keyExtractor: (_: unknown, index: number) => source.images[index]?.uri ?? `pending:${index}`,
     // Stays fixed: react-native-image-viewing remounts the Modal and replays its fade when it changes.
     imageIndex: source.selectedIndex,

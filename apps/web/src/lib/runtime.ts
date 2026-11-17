@@ -26,10 +26,33 @@ const layerRelayTracing = RelayTracing.layer(resolveRelayTracingConfig(), {
   client: typeof window !== "undefined" && window.desktopBridge ? "desktop" : "web",
 }).pipe(Layer.provide(layerHttpClient));
 
+export const layerWebSocketConstructor = Layer.succeed(
+  Socket.WebSocketConstructor,
+  (url, options) => {
+    if (typeof window !== "undefined" && window.desktopBridge) {
+      const protocols =
+        typeof options === "string" || Array.isArray(options)
+          ? options
+          : options && typeof options === "object" && "protocols" in options
+            ? (options.protocols as string | string[] | undefined)
+            : undefined;
+      return protocols !== undefined
+        ? new globalThis.WebSocket(url, protocols)
+        : new globalThis.WebSocket(url);
+    }
+    if (options !== undefined && typeof options !== "string" && !Array.isArray(options)) {
+      throw new TypeError(
+        "WebSocket client options are not supported by the global WebSocket constructor",
+      );
+    }
+    return new globalThis.WebSocket(url, options);
+  },
+);
+
 type RuntimeLayerSource =
   | typeof layerHttpClient
   | typeof Dpop.layer
-  | typeof Socket.layerWebSocketConstructorGlobal
+  | typeof layerWebSocketConstructor
   | typeof layerRelayTracing
   | typeof ClientTracer.layer
   | ReturnType<typeof ManagedRelayLayer.layer>;
@@ -58,7 +81,7 @@ export function __setPrimaryHttpRunnerForTests(runner?: PrimaryHttpEffectRunner)
 const layerRuntime = Layer.mergeAll(
   layerHttpClient,
   Dpop.layer,
-  Socket.layerWebSocketConstructorGlobal,
+  layerWebSocketConstructor,
   ClientTracer.layer,
   layerRelayTracing,
   ManagedRelayLayer.layer(configuredRelayUrl()).pipe(

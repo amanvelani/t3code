@@ -1,7 +1,11 @@
+// @effect-diagnostics globalDate:off -- Tests exercise Date.now()
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildPairingAppLink,
+  devTunnelRequestHeaders,
+  isDevTunnelUrl,
+  isTunnelTokenExpired,
   readPairingAppLink,
   RemoteBackendUrlMissingError,
   RemotePairingTokenMissingError,
@@ -158,5 +162,140 @@ describe("remote", () => {
     expect(
       readPairingAppLink(`https://pair?pairingUrl=${encodeURIComponent(pairingUrl)}`),
     ).toBeNull();
+  });
+
+  describe("Dev Tunnel credential transport", () => {
+    it("preserves optional tunnelToken from pairing URL fragment parameter", () => {
+      expect(
+        resolveRemotePairingTarget({
+          pairingUrl:
+            "https://machine-3773.usw2.devtunnels.ms/pair#token=pairing-token&tunnelToken=tunnel-credential",
+        }),
+      ).toEqual({
+        credential: "pairing-token",
+        httpBaseUrl: "https://machine-3773.usw2.devtunnels.ms/",
+        wsBaseUrl: "wss://machine-3773.usw2.devtunnels.ms/",
+        tunnelToken: "tunnel-credential",
+      });
+    });
+
+    it("preserves optional tunnelToken from explicit input", () => {
+      expect(
+        resolveRemotePairingTarget({
+          pairingUrl: "https://machine-3773.usw2.devtunnels.ms/pair#token=pairing-token",
+          tunnelToken: "explicit-token",
+        }),
+      ).toEqual({
+        credential: "pairing-token",
+        httpBaseUrl: "https://machine-3773.usw2.devtunnels.ms/",
+        wsBaseUrl: "wss://machine-3773.usw2.devtunnels.ms/",
+        tunnelToken: "explicit-token",
+      });
+
+      expect(
+        resolveRemotePairingTarget({
+          host: "https://machine-3773.usw2.devtunnels.ms",
+          pairingCode: "pairing-token",
+          tunnelToken: "explicit-token",
+        }),
+      ).toEqual({
+        credential: "pairing-token",
+        httpBaseUrl: "https://machine-3773.usw2.devtunnels.ms/",
+        wsBaseUrl: "wss://machine-3773.usw2.devtunnels.ms/",
+        tunnelToken: "explicit-token",
+      });
+    });
+
+    it("never reads tunnelToken from query parameters", () => {
+      expect(
+        resolveRemotePairingTarget({
+          pairingUrl:
+            "https://machine-3773.usw2.devtunnels.ms/pair?tunnelToken=leaked-in-query#token=pairing-token",
+        }),
+      ).toEqual({
+        credential: "pairing-token",
+        httpBaseUrl: "https://machine-3773.usw2.devtunnels.ms/",
+        wsBaseUrl: "wss://machine-3773.usw2.devtunnels.ms/",
+      });
+    });
+
+    it("explicit tunnelToken input takes precedence over fragment parameter", () => {
+      expect(
+        resolveRemotePairingTarget({
+          pairingUrl:
+            "https://machine-3773.usw2.devtunnels.ms/pair#token=pairing-token&tunnelToken=frag-token",
+          tunnelToken: "explicit-token",
+        }),
+      ).toEqual({
+        credential: "pairing-token",
+        httpBaseUrl: "https://machine-3773.usw2.devtunnels.ms/",
+        wsBaseUrl: "wss://machine-3773.usw2.devtunnels.ms/",
+        tunnelToken: "explicit-token",
+      });
+    });
+
+    it("validates dev tunnel URLs strictly", () => {
+      expect(isDevTunnelUrl("https://foo-3773.usw2.devtunnels.ms/")).toBe(true);
+      expect(isDevTunnelUrl("wss://foo-3773.usw2.devtunnels.ms/ws")).toBe(true);
+      // cleartext
+      expect(isDevTunnelUrl("http://foo-3773.usw2.devtunnels.ms/")).toBe(false);
+      expect(isDevTunnelUrl("ws://foo-3773.usw2.devtunnels.ms/ws")).toBe(false);
+      // non-devtunnel
+      expect(isDevTunnelUrl("https://example.com/")).toBe(false);
+      expect(isDevTunnelUrl("https://devtunnels.ms/")).toBe(false);
+      expect(isDevTunnelUrl("https://evil-devtunnels.ms/")).toBe(false);
+      expect(isDevTunnelUrl("https://user:password@foo.usw2.devtunnels.ms/")).toBe(false);
+      expect(isDevTunnelUrl("https://foo.usw2.devtunnels.ms:8443/")).toBe(false);
+      for (const host of ["http://foo.usw2.devtunnels.ms", "https://unrelated.test"]) {
+        expect(() =>
+          resolveRemotePairingTarget({ host, pairingCode: "pairing-token", tunnelToken: "secret" }),
+        ).toThrow();
+        expect(() =>
+          resolveRemotePairingTarget({
+            pairingUrl: `${host}/pair#token=pairing-token&tunnelToken=secret`,
+          }),
+        ).toThrow();
+      }
+    });
+
+    it("generates devTunnelRequestHeaders only for valid HTTPS dev tunnel origins", () => {
+      expect(devTunnelRequestHeaders("https://foo-3773.usw2.devtunnels.ms/", "my-token")).toEqual({
+        "X-Tunnel-Authorization": "tunnel my-token",
+      });
+      // Already has tunnel prefix
+      expect(
+        devTunnelRequestHeaders("https://foo-3773.usw2.devtunnels.ms/", "tunnel my-token"),
+      ).toEqual({
+        "X-Tunnel-Authorization": "tunnel my-token",
+      });
+      // Absent token
+      expect(devTunnelRequestHeaders("https://foo-3773.usw2.devtunnels.ms/", undefined)).toEqual(
+        {},
+      );
+      expect(devTunnelRequestHeaders("https://foo-3773.usw2.devtunnels.ms/", "")).toEqual({});
+      // Non-devtunnel origin
+      expect(devTunnelRequestHeaders("https://example.com/", "my-token")).toEqual({});
+      // Cleartext
+      expect(devTunnelRequestHeaders("http://foo-3773.usw2.devtunnels.ms/", "my-token")).toEqual(
+        {},
+      );
+    });
+
+    it("checks JWT tunnel token expiry for UX without rejecting malformed tokens", () => {
+      const nowSec = 1_700_000_000;
+      const expiredPayload = Buffer.from(JSON.stringify({ exp: nowSec - 60 })).toString(
+        "base64url",
+      );
+      const activePayload = Buffer.from(JSON.stringify({ exp: nowSec + 3600 })).toString(
+        "base64url",
+      );
+      const expiredJwt = `eyJhbGciOiJub25lIn0.${expiredPayload}.`;
+      const activeJwt = `eyJhbGciOiJub25lIn0.${activePayload}.`;
+
+      expect(isTunnelTokenExpired(expiredJwt, nowSec * 1000)).toBe(true);
+      expect(isTunnelTokenExpired(activeJwt, nowSec * 1000)).toBe(false);
+      expect(isTunnelTokenExpired("not-a-jwt", nowSec * 1000)).toBe(false);
+      expect(isTunnelTokenExpired(undefined, nowSec * 1000)).toBe(false);
+    });
   });
 });

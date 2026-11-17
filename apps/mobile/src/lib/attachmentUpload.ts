@@ -31,6 +31,7 @@ import {
 } from "./composerImages";
 import { imageMimeType } from "@t3tools/shared/image";
 import { uuidv4 } from "./uuid";
+import { devTunnelHeaders } from "./devTunnelHeaders";
 
 export type UploadedMobileAttachment =
   | UploadChatImageAttachment
@@ -225,10 +226,14 @@ async function uploadFileBytes(
         encoding: "base64",
       });
     }
+    const tunnelHeaders = devTunnelHeaders(url, environmentId);
     const result = await file.upload(url, {
       httpMethod: "POST",
       uploadType: UploadType.BINARY_CONTENT,
-      headers: { "Content-Type": composerAttachmentWireMimeType(attachment) },
+      headers: {
+        "Content-Type": composerAttachmentWireMimeType(attachment),
+        ...tunnelHeaders,
+      },
       signal,
       ...(onProgress
         ? {

@@ -1,14 +1,22 @@
+import { isDevTunnelUrl } from "@t3tools/shared/remote";
+import { WS_METHODS } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClient from "effect/http/HttpClient";
 
-import type { ConnectionCatalogEntry, ConnectionRoute } from "./catalog.ts";
+import {
+  BearerConnectionCredential,
+  type ConnectionCatalogEntry,
+  type ConnectionRoute,
+} from "./catalog.ts";
+import * as ConnectionCredentialStore from "./credentialStore.ts";
 import type {
   ConnectionAttemptError,
   ConnectionAttemptStage,
@@ -18,6 +26,7 @@ import { ConnectionTransientError } from "./model.ts";
 import * as ConnectionResolver from "./resolver.ts";
 import {
   connectionRoutes,
+  isLearned,
   routeEntry,
   routeHttpBaseUrl,
   routeKeepsItsHost,
@@ -27,6 +36,9 @@ import {
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import * as RpcSession from "../rpc/session.ts";
 import { fetchRemoteEnvironmentDescriptor } from "../environment/descriptor.ts";
+import { renewDevTunnelAccess } from "./devTunnelRenewal.ts";
+
+const isBearerCredential = Schema.is(BearerConnectionCredential);
 
 export type ConnectionDriverProgress =
   | {
@@ -146,13 +158,22 @@ export const make = Effect.gen(function* () {
   const sessions = yield* RpcSession.RpcSessionFactory;
   const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
   const httpClient = yield* HttpClient.HttpClient;
+  const credentialsOption = yield* Effect.serviceOption(
+    ConnectionCredentialStore.ConnectionCredentialStore,
+  );
 
   // The descriptor is public, so this sends no credential to whatever
   // answers at a saved LAN address on a different network.
-  const checkDescriptor = (httpBaseUrl: string, environmentId: string, keepsItsHost: boolean) =>
+  const checkDescriptor = (
+    httpBaseUrl: string,
+    environmentId: string,
+    keepsItsHost: boolean,
+    tunnelToken?: string,
+  ) =>
     fetchRemoteEnvironmentDescriptor({
       httpBaseUrl,
       timeoutMs: ROUTE_CHECK_TIMEOUT_MS,
+      tunnelToken,
     }).pipe(
       Effect.option,
       // The connect this check leads to skips its own read. Every answer, even a
@@ -173,7 +194,28 @@ export const make = Effect.gen(function* () {
   const checkRoute = (entry: ConnectionCatalogEntry, route: ConnectionRoute) => {
     const httpBaseUrl = routeHttpBaseUrl(route);
     if (httpBaseUrl === null) return Effect.succeed<RouteCheck>("unchecked");
-    return checkDescriptor(httpBaseUrl, entry.target.environmentId, routeKeepsItsHost(route)).pipe(
+    return Effect.gen(function* () {
+      let tunnelToken: string | undefined;
+      if (
+        isDevTunnelUrl(httpBaseUrl) &&
+        !isLearned(route) &&
+        Option.isSome(credentialsOption) &&
+        route.target._tag === "BearerConnectionTarget"
+      ) {
+        const credOpt = yield* credentialsOption.value
+          .get(route.target.connectionId)
+          .pipe(Effect.catch(() => Effect.succeedNone));
+        if (Option.isSome(credOpt) && isBearerCredential(credOpt.value)) {
+          tunnelToken = credOpt.value.tunnelToken;
+        }
+      }
+      return yield* checkDescriptor(
+        httpBaseUrl,
+        entry.target.environmentId,
+        routeKeepsItsHost(route),
+        tunnelToken,
+      );
+    }).pipe(
       Effect.withSpan("ConnectionDriver.checkRoute", {
         attributes: { "connection.target.kind": route.target._tag },
       }),
@@ -185,6 +227,7 @@ export const make = Effect.gen(function* () {
       prepared.httpBaseUrl,
       prepared.environmentId,
       prepared.httpBaseUrl.startsWith("https:"),
+      prepared.tunnelToken,
     ).pipe(
       Effect.withSpan("ConnectionDriver.checkHost", {
         attributes: { "connection.target.kind": prepared.target._tag },
@@ -226,7 +269,27 @@ export const make = Effect.gen(function* () {
               Effect.forkScoped,
             );
         }
-        return { prepared, session } satisfies EnvironmentConnectionLease;
+        return {
+          prepared,
+          session:
+            prepared.tunnelToken && Option.isSome(credentialsOption)
+              ? {
+                  ...session,
+                  closed: Effect.raceFirst(
+                    session.closed,
+                    renewDevTunnelAccess({
+                      prepared,
+                      issueToken: () => session.client[WS_METHODS.serverIssueDevTunnelToken]({}),
+                    }).pipe(
+                      Effect.provideService(
+                        ConnectionCredentialStore.ConnectionCredentialStore,
+                        credentialsOption.value,
+                      ),
+                    ),
+                  ),
+                }
+              : session,
+        } satisfies EnvironmentConnectionLease;
       }),
     );
   });

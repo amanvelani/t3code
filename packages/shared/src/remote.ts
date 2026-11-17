@@ -1,6 +1,10 @@
+// @effect-diagnostics globalDate:off -- Dev Tunnel JWT expiry check for UX reads system clock.
 import * as Schema from "effect/Schema";
+import * as Base64Url from "effect/encoding/Base64Url";
+import * as Option from "effect/Option";
 
 const PAIRING_TOKEN_PARAM = "token";
+const TUNNEL_TOKEN_PARAM = "tunnelToken";
 const HOSTED_PAIRING_HOST_PARAM = "host";
 const HOSTED_PAIRING_LABEL_PARAM = "label";
 const PAIRING_APP_LINK_PARAM = "pairingUrl";
@@ -135,6 +139,7 @@ export interface ResolvedRemotePairingTarget {
   readonly credential: string;
   readonly httpBaseUrl: string;
   readonly wsBaseUrl: string;
+  readonly tunnelToken?: string | undefined;
 }
 
 export interface HostedPairingRequest {
@@ -200,11 +205,73 @@ export const readPairingAppLink = (value: string): string | null => {
   return url.searchParams.get(PAIRING_APP_LINK_PARAM)?.trim() || null;
 };
 
+export const isDevTunnelUrl = (value: string | URL): boolean => {
+  let url: URL;
+  if (value instanceof URL) {
+    url = value;
+  } else {
+    try {
+      url = new URL(value);
+    } catch {
+      return false;
+    }
+  }
+  if (url.protocol !== "https:" && url.protocol !== "wss:") {
+    return false;
+  }
+  const hostname = url.hostname.toLowerCase();
+  return (
+    hostname.endsWith(".devtunnels.ms") &&
+    hostname.length > ".devtunnels.ms".length &&
+    !url.port &&
+    !url.username &&
+    !url.password
+  );
+};
+
+export const devTunnelRequestHeaders = (
+  httpBaseUrl: string,
+  tunnelToken?: string | undefined,
+): Readonly<Record<string, string>> => {
+  const trimmed = tunnelToken?.trim();
+  if (!trimmed || !isDevTunnelUrl(httpBaseUrl)) {
+    return {};
+  }
+  const token = trimmed.replace(/^tunnel\s+/i, "");
+  return {
+    "X-Tunnel-Authorization": `tunnel ${token}`,
+  };
+};
+
+export const isTunnelTokenExpired = (
+  tunnelToken?: string | undefined,
+  nowMs = Date.now(),
+): boolean => {
+  const expiry = devTunnelTokenExpiresAt(tunnelToken);
+  return expiry !== null && expiry <= nowMs;
+};
+
+const decodeTunnelExpiry = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ exp: Schema.Number })),
+);
+export const devTunnelTokenExpiresAt = (tunnelToken?: string): number | null => {
+  if (!tunnelToken) return null;
+  const rawToken = tunnelToken.trim().replace(/^tunnel\s+/i, "");
+  const decoded = Base64Url.decodeString(rawToken.split(".")[1] ?? "");
+  if (decoded._tag === "Failure") return null;
+  const payload = decodeTunnelExpiry(decoded.success);
+  return Option.isSome(payload) && Number.isFinite(payload.value.exp)
+    ? payload.value.exp * 1000
+    : null;
+};
+
 export const resolveRemotePairingTarget = (input: {
   readonly pairingUrl?: string;
   readonly host?: string;
   readonly pairingCode?: string;
+  readonly tunnelToken?: string;
 }): ResolvedRemotePairingTarget => {
+  const explicitTunnelToken = input.tunnelToken?.trim() || undefined;
   const pairingUrl = input.pairingUrl?.trim() ?? "";
   if (pairingUrl.length > 0) {
     let url: URL;
@@ -218,19 +285,25 @@ export const resolveRemotePairingTarget = (input: {
         protocol: url.protocol,
       });
     }
+    const fragmentTunnelToken = readHashParams(url).get(TUNNEL_TOKEN_PARAM)?.trim() || undefined;
+    const tunnelToken = explicitTunnelToken ?? fragmentTunnelToken;
     const hostedPairingRequest = readHostedPairingRequest(url);
     if (hostedPairingRequest) {
       const hostedBackendUrl = normalizeRemoteBaseUrl(
         hostedPairingRequest.host,
         "hosted-pairing-host",
       );
+      if (tunnelToken && !isDevTunnelUrl(hostedBackendUrl))
+        throw new RemotePairingUrlInvalidError({});
       return {
         credential: hostedPairingRequest.token,
         httpBaseUrl: toHttpBaseUrl(hostedBackendUrl),
         wsBaseUrl: toWsBaseUrl(hostedBackendUrl),
+        ...(tunnelToken ? { tunnelToken } : {}),
       };
     }
 
+    if (tunnelToken && !isDevTunnelUrl(url)) throw new RemotePairingUrlInvalidError({});
     const credential = getPairingTokenFromUrl(url) ?? "";
     if (!credential) {
       throw new RemotePairingTokenMissingError({ host: url.host });
@@ -239,6 +312,7 @@ export const resolveRemotePairingTarget = (input: {
       credential,
       httpBaseUrl: toHttpBaseUrl(url),
       wsBaseUrl: toWsBaseUrl(url),
+      ...(tunnelToken ? { tunnelToken } : {}),
     };
   }
 
@@ -248,6 +322,9 @@ export const resolveRemotePairingTarget = (input: {
     throw new RemoteBackendUrlMissingError();
   }
   const normalizedHost = normalizeRemoteBaseUrl(host, "direct-host");
+  if (explicitTunnelToken && !isDevTunnelUrl(normalizedHost)) {
+    throw new RemoteBackendUrlInvalidError({ source: "direct-host" });
+  }
   if (!pairingCode) {
     throw new RemotePairingCodeMissingError({ host: normalizedHost.host });
   }
@@ -256,5 +333,6 @@ export const resolveRemotePairingTarget = (input: {
     credential: pairingCode,
     httpBaseUrl: toHttpBaseUrl(normalizedHost),
     wsBaseUrl: toWsBaseUrl(normalizedHost),
+    ...(explicitTunnelToken ? { tunnelToken: explicitTunnelToken } : {}),
   };
 };

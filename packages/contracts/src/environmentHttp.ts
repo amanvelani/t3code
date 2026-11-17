@@ -8,6 +8,7 @@ import * as HttpApiMiddleware from "effect/http-api/HttpApiMiddleware";
 import * as HttpApiSchema from "effect/http-api/HttpApiSchema";
 import * as HttpServerRespondable from "effect/http/HttpServerRespondable";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
+import { DevTunnelConnectToken, DevTunnelError } from "./devTunnel.ts";
 
 import {
   AuthAccessTokenResult,
@@ -629,6 +630,14 @@ class EnvironmentAuthHttpApi extends HttpApiGroup.make("auth")
     }).middleware(EnvironmentAuthenticatedAuth),
   ) {}
 
+class EnvironmentDevTunnelHttpApi extends HttpApiGroup.make("devTunnel").add(
+  HttpApiEndpoint.post("issueToken", "/api/dev-tunnel/token", {
+    headers: OptionalBearerHeaders,
+    success: DevTunnelConnectToken,
+    error: [...EnvironmentScopedOperationErrors, DevTunnelError.pipe(HttpApiSchema.status(503))],
+  }).middleware(EnvironmentAuthenticatedAuth),
+) {}
+
 class EnvironmentMcpOAuthHttpApi extends HttpApiGroup.make("mcpOAuth")
   .add(
     HttpApiEndpoint.get("protectedResource", "/.well-known/oauth-protected-resource", {
@@ -1022,6 +1031,7 @@ class EnvironmentWebhooksHttpApi extends HttpApiGroup.make("webhooks")
 export class EnvironmentHttpApi extends HttpApi.make("environment")
   .add(EnvironmentMetadataHttpApi)
   .add(EnvironmentAuthHttpApi)
+  .add(EnvironmentDevTunnelHttpApi)
   .add(EnvironmentMcpOAuthHttpApi)
   .add(EnvironmentOrchestrationHttpApi)
   .add(EnvironmentPullRequestsHttpApi)

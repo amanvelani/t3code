@@ -24,6 +24,7 @@ import { ConnectionDiagnosisDetails, useConnectionDiagnosis } from "./Connection
 import { ConnectionFormField } from "./ConnectionFormField";
 import { ConnectionStatusDot } from "./ConnectionStatusDot";
 import { environmentStatusText } from "./environmentStatusText";
+import { isDevTunnelAuthBlocked, renewDevTunnelAuth } from "./devTunnelRecovery";
 
 function connectionStatusLabel(environment: ConnectedEnvironmentSummary): string | null {
   if (!environment.isEnabled && environment.connectionState !== "unsupported") {
@@ -63,6 +64,8 @@ export function ConnectionEnvironmentRow(props: {
     props.environment.environmentId,
     presentation,
   );
+  const devTunnelBlocked = isDevTunnelAuthBlocked(connectionState, presentation?.entry);
+  const [renewingTunnel, setRenewingTunnel] = useState(false);
   const enabled = props.environment.isEnabled && !unsupported;
   const statusLabel = connectionStatusLabel(props.environment);
   const statusTraceId = enabled ? props.environment.connectionErrorTraceId : null;
@@ -74,6 +77,22 @@ export function ConnectionEnvironmentRow(props: {
     enabled &&
     (props.environment.connectionState === "connecting" ||
       props.environment.connectionState === "reconnecting");
+  const handleRenewTunnel = async () => {
+    if (renewingTunnel) return;
+    setRenewingTunnel(true);
+    try {
+      const result = await renewDevTunnelAuth(props.environment.environmentId);
+      if (result.status === "success") {
+        Dialog.alert("Dev Tunnel", "Access renewed successfully.");
+      }
+    } catch (err) {
+      Dialog.alert(
+        "Could not renew tunnel access",
+        err instanceof Error ? err.message : "Try again.",
+      );
+    }
+    setRenewingTunnel(false);
+  };
   const handleSave = async () => {
     const result = await props.onUpdate(props.environment.environmentId, {
       label: label.trim(),
@@ -206,6 +225,15 @@ export function ConnectionEnvironmentRow(props: {
             <ConnectionDiagnosisDetails
               hostLabel={props.environment.environmentLabel}
               diagnosis={diagnosis}
+            />
+          ) : null}
+          {devTunnelBlocked ? (
+            <Button
+              label="Renew tunnel access"
+              icon="arrow.clockwise"
+              tone="primary"
+              loading={renewingTunnel}
+              onPress={handleRenewTunnel}
             />
           ) : null}
           {props.environment.isRelayManaged ? (

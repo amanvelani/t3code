@@ -9,7 +9,8 @@ import {
   stripPairingTokenFromUrl,
   submitServerAuthCredential,
 } from "../../environments/primary";
-import { readHostedPairingRequest } from "../../hostedPairing";
+import { isDevTunnelUrl } from "@t3tools/shared/remote";
+import { isHostedStaticApp, readHostedPairingRequest } from "../../hostedPairing";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { StandalonePage, StandalonePageHeader } from "../ui/standalone-page";
@@ -157,6 +158,19 @@ export function HostedPairingRouteSurface() {
     if (!request) {
       setStatus("error");
       setMessage("This pairing link is missing its backend host or token.");
+      setCanRetry(false);
+      return;
+    }
+
+    const isTunnel =
+      isDevTunnelUrl(request.host) ||
+      request.host.toLowerCase().includes(".devtunnels.ms") ||
+      (typeof window !== "undefined" && window.location.href.includes("tunnelToken"));
+    if (isHostedStaticApp() && isTunnel) {
+      setStatus("error");
+      setMessage(
+        "Private Dev Tunnels are not supported in the hosted web app. Use the T3 Code desktop app or connect directly.",
+      );
       setCanRetry(false);
       return;
     }

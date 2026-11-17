@@ -26,6 +26,7 @@ import * as Clipboard from "expo-clipboard";
 import { AppText } from "../../components/ui/AppText";
 import { PdfPreview } from "../../components/PdfPreview";
 import { downloadAndShareAttachment } from "../../lib/attachmentDownload";
+import { devTunnelHeaders } from "../../lib/devTunnelHeaders";
 import { beginForegroundHandoff } from "../../lib/foreground-handoff";
 import { usePreviewStreamAccess } from "../../state/preview";
 import { previewPromptText } from "./previewPromptText";
@@ -81,10 +82,12 @@ async function sendFilesToPage(chooser: PreviewStreamFileChooser, pick: boolean)
       } as unknown as Blob);
     }
   }
+  const headers = devTunnelHeaders(chooser.uploadUrl);
   const response = await fetch(chooser.uploadUrl, {
     method: "POST",
     body,
     credentials: chooser.credentials ? "include" : "omit",
+    ...(headers ? { headers } : {}),
   });
   if (!response.ok) throw new Error((await response.text()) || "The upload was refused.");
 }

@@ -14,6 +14,7 @@ import * as ClientCapabilities from "../platform/capabilities.ts";
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import {
   BearerConnectionCredential,
+  BearerConnectionProfile,
   type ConnectionCatalogEntry,
   SshConnectionProfile,
   type ConnectionCredential,
@@ -21,6 +22,7 @@ import {
 } from "./catalog.ts";
 import * as ConnectionCredentialStore from "./credentialStore.ts";
 import {
+  BearerConnectionTarget,
   ConnectionTransientError,
   PrimaryConnectionTarget,
   SshConnectionTarget,
@@ -355,5 +357,111 @@ describe("ConnectionResolver", () => {
         }
         expect(yield* permissions.get(entry)).toBe(scenario === "changed" ? "off" : "read-write");
       }),
+  );
+
+  it.effect("passes tunnelToken for Dev Tunnel bearer connections", () =>
+    Effect.gen(function* () {
+      const authorizedInputs: Array<unknown> = [];
+      const connectionId = "bearer:env-1:https://my-tunnel.usw2.devtunnels.ms";
+      const target = new BearerConnectionTarget({
+        environmentId: ENVIRONMENT_ID,
+        label: "Dev Tunnel",
+        connectionId,
+      });
+      const profile = new BearerConnectionProfile({
+        connectionId,
+        environmentId: ENVIRONMENT_ID,
+        label: "Dev Tunnel",
+        httpBaseUrl: "https://my-tunnel.usw2.devtunnels.ms/",
+        wsBaseUrl: "wss://my-tunnel.usw2.devtunnels.ms/",
+      });
+      const layerBroker = yield* makeDependencies({
+        credentials: [
+          [
+            connectionId,
+            new BearerConnectionCredential({
+              token: "bearer-token",
+              tunnelToken: "secret-tunnel-token",
+            }),
+          ],
+        ],
+        authorizeBearer: (input) =>
+          Effect.sync(() => {
+            authorizedInputs.push(input);
+            return {
+              environmentId: input.expectedEnvironmentId,
+              label: "Dev Tunnel",
+              httpBaseUrl: input.httpBaseUrl,
+              socketUrl: "wss://my-tunnel.usw2.devtunnels.ms/ws?wsTicket=test",
+              httpAuthorization: { _tag: "Bearer" as const, token: input.bearerToken },
+              tunnelToken: input.tunnelToken,
+            };
+          }),
+      });
+      const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(layerBroker));
+      const entry = catalogEntry(target, Option.some(profile));
+      const prepared = yield* broker.prepare(entry);
+
+      expect(authorizedInputs[0]).toEqual(
+        expect.objectContaining({
+          tunnelToken: "secret-tunnel-token",
+        }),
+      );
+      expect(prepared.tunnelToken).toBe("secret-tunnel-token");
+    }),
+  );
+
+  it.effect("does NOT copy or pass tunnelToken for learned routes", () =>
+    Effect.gen(function* () {
+      const authorizedInputs: Array<unknown> = [];
+      const parentConnectionId = "bearer:env-1:https://my-tunnel.usw2.devtunnels.ms";
+      const learnedConnectionId = `learned:${ENVIRONMENT_ID}:http://192.168.1.50:3773@${parentConnectionId}`;
+      const target = new BearerConnectionTarget({
+        environmentId: ENVIRONMENT_ID,
+        label: "Learned LAN Route",
+        connectionId: learnedConnectionId,
+      });
+      const profile = new BearerConnectionProfile({
+        connectionId: learnedConnectionId,
+        environmentId: ENVIRONMENT_ID,
+        label: "Learned LAN Route",
+        httpBaseUrl: "http://192.168.1.50:3773/",
+        wsBaseUrl: "ws://192.168.1.50:3773/",
+        learned: true,
+      });
+      const layerBroker = yield* makeDependencies({
+        credentials: [
+          [
+            parentConnectionId,
+            new BearerConnectionCredential({
+              token: "shared-bearer-token",
+              tunnelToken: "secret-tunnel-token",
+            }),
+          ],
+        ],
+        authorizeBearer: (input) =>
+          Effect.sync(() => {
+            authorizedInputs.push(input);
+            return {
+              environmentId: input.expectedEnvironmentId,
+              label: "Learned Route",
+              httpBaseUrl: input.httpBaseUrl,
+              socketUrl: "ws://192.168.1.50:3773/ws?wsTicket=test",
+              httpAuthorization: { _tag: "Bearer" as const, token: input.bearerToken },
+              tunnelToken: input.tunnelToken,
+            };
+          }),
+      });
+      const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(layerBroker));
+      const entry = catalogEntry(target, Option.some(profile));
+      const prepared = yield* broker.prepare(entry);
+
+      expect(authorizedInputs[0]).toEqual(
+        expect.objectContaining({
+          tunnelToken: undefined,
+        }),
+      );
+      expect(prepared.tunnelToken).toBeUndefined();
+    }),
   );
 });

@@ -35,6 +35,7 @@ import {
   shareGeneratedAttachment,
   writeGeneratedAttachmentFile,
 } from "../../lib/attachmentDownload";
+import { devTunnelHeaders } from "../../lib/devTunnelHeaders";
 import { attachmentDocumentPresentation } from "../../lib/attachmentDocumentPresentation";
 import {
   createComposerFileAttachment,
@@ -172,6 +173,7 @@ function useZipArchive(input: {
   readonly isLocal: boolean;
   readonly sizeBytes: number;
   readonly refresh: () => Promise<string | null>;
+  readonly environmentId?: EnvironmentId | null;
 }) {
   const [state, setState] = useState<ArchiveState>({
     status: "loading",
@@ -180,10 +182,10 @@ function useZipArchive(input: {
   });
   const [revision, setRevision] = useState(0);
   const controller = useRef<AbortController | null>(null);
-  const { uri, isLocal, sizeBytes } = input;
+  const { uri, isLocal, sizeBytes, environmentId } = input;
   // The parent mints a new refresh callback on every render; it must not reload the archive.
   const refresh = useEffectEvent(input.refresh);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Load archive bytes and cancel the stream on cleanup.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Loads archive bytes and cancels the stream on cleanup.
   useEffect(() => {
     if (!uri) return;
     const abort = new AbortController();
@@ -199,7 +201,8 @@ function useZipArchive(input: {
         return openArchive(await file.arrayBuffer());
       }
       const url = (await refresh()) ?? uri;
-      const response = await fetch(url, { signal: abort.signal });
+      const headers = devTunnelHeaders(url, environmentId ?? undefined);
+      const response = await fetch(url, { signal: abort.signal, ...(headers ? { headers } : {}) });
       if (!response.ok || !response.body) throw new ZipFailureError({ failure: NETWORK });
       const bytes = await readArchiveBody(response.body, (receivedBytes) =>
         setState({
@@ -226,8 +229,8 @@ function useZipArchive(input: {
           });
       });
     return () => abort.abort();
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Retry must reload the archive.
-  }, [uri, isLocal, sizeBytes, revision]);
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- revision retries an unchanged URL.
+  }, [uri, isLocal, sizeBytes, revision, environmentId]);
   return {
     state,
     retry: () => setRevision((value) => value + 1),

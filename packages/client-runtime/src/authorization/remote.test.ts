@@ -346,4 +346,110 @@ describe("remote environment authorization", () => {
       expect(url.toString()).not.toContain("device-1");
     }),
   );
+
+  it.effect(
+    "attaches Dev Tunnel authorization header to requests targeting https://*.devtunnels.ms",
+    () =>
+      Effect.gen(function* () {
+        const fetch = recordedFetch(
+          Response.json({
+            access_token: "bearer-token",
+            issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
+            token_type: "Bearer",
+            expires_in: 3600,
+            scope: "orchestration:read",
+          }),
+        );
+        yield* bootstrapRemoteBearerSession({
+          httpBaseUrl: "https://my-tunnel-3773.usw2.devtunnels.ms/",
+          credential: "one-time-code",
+          tunnelToken: "secret-tunnel-token",
+        }).pipe(provideRemoteHttp(fetch.fetchFn));
+
+        expectFetchCall(fetch.calls, 1, {
+          url: "https://my-tunnel-3773.usw2.devtunnels.ms/oauth/token",
+          method: "POST",
+          headers: {
+            "x-tunnel-authorization": "tunnel secret-tunnel-token",
+          },
+        });
+      }),
+  );
+
+  it.effect("isolates tunnel tokens between two different machines", () =>
+    Effect.gen(function* () {
+      const fetch = recordedFetch(
+        Response.json({
+          access_token: "token-1",
+          issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
+          token_type: "Bearer",
+          expires_in: 3600,
+          scope: "orchestration:read",
+        }),
+        Response.json({
+          access_token: "token-2",
+          issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
+          token_type: "Bearer",
+          expires_in: 3600,
+          scope: "orchestration:read",
+        }),
+      );
+      yield* bootstrapRemoteBearerSession({
+        httpBaseUrl: "https://machine1-3773.usw2.devtunnels.ms/",
+        credential: "code-1",
+        tunnelToken: "token-machine-1",
+      }).pipe(provideRemoteHttp(fetch.fetchFn));
+
+      yield* bootstrapRemoteBearerSession({
+        httpBaseUrl: "https://machine2-3773.usw2.devtunnels.ms/",
+        credential: "code-2",
+        tunnelToken: "token-machine-2",
+      }).pipe(provideRemoteHttp(fetch.fetchFn));
+
+      expectFetchCall(fetch.calls, 1, {
+        url: "https://machine1-3773.usw2.devtunnels.ms/oauth/token",
+        method: "POST",
+        headers: {
+          "x-tunnel-authorization": "tunnel token-machine-1",
+        },
+      });
+      expectFetchCall(fetch.calls, 2, {
+        url: "https://machine2-3773.usw2.devtunnels.ms/oauth/token",
+        method: "POST",
+        headers: {
+          "x-tunnel-authorization": "tunnel token-machine-2",
+        },
+      });
+      expect(fetch.calls[0]![1].headers).not.toEqual(
+        expect.objectContaining({ "x-tunnel-authorization": "tunnel token-machine-2" }),
+      );
+      expect(fetch.calls[1]![1].headers).not.toEqual(
+        expect.objectContaining({ "x-tunnel-authorization": "tunnel token-machine-1" }),
+      );
+      expect(fetch.calls[0]![1].redirect).toBe("error");
+      expect(fetch.calls[1]![1].redirect).toBe("error");
+    }),
+  );
+
+  it.effect("does not attach Dev Tunnel authorization header to non-devtunnel endpoints", () =>
+    Effect.gen(function* () {
+      const fetch = recordedFetch(
+        Response.json({
+          access_token: "bearer-token",
+          issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
+          token_type: "Bearer",
+          expires_in: 3600,
+          scope: "orchestration:read",
+        }),
+      );
+      yield* bootstrapRemoteBearerSession({
+        httpBaseUrl: "https://regular.example.com/",
+        credential: "one-time-code",
+        tunnelToken: "secret-tunnel-token",
+      }).pipe(provideRemoteHttp(fetch.fetchFn));
+
+      expect(fetch.calls[0]![1].headers).not.toHaveProperty("x-tunnel-authorization");
+      expect(fetch.calls[0]![1].headers).not.toHaveProperty("X-Tunnel-Authorization");
+    }),
+  );
 });

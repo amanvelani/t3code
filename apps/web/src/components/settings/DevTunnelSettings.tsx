@@ -42,6 +42,9 @@ export function DevTunnelSettings({
   const createPairingCredential = useAtomCommand(authEnvironment.createPairingCredential, {
     reportFailure: false,
   });
+  const issueToken = useAtomCommand(serverEnvironment.issueDevTunnelToken, {
+    reportFailure: false,
+  });
   const canEdit = useAtomValue(serverEnvironment.setDevTunnelEnabled.permissionAtom(environmentId));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +67,13 @@ export function DevTunnelSettings({
     if (state?.status !== "running" || !state.url) return;
     setBusy(true);
     setError(null);
+    const connectToken = await issueToken({ environmentId, input: {} });
+    if (connectToken._tag === "Failure") {
+      const failure = squashAtomCommandFailure(connectToken);
+      setError(failure instanceof Error ? failure.message : "Could not issue tunnel access.");
+      setBusy(false);
+      return;
+    }
     try {
       const result = await createPairingCredential({
         environmentId,
@@ -79,9 +89,11 @@ export function DevTunnelSettings({
       } else {
         const issued = result.value;
         onPairingLinkCreated(issued);
-        setPairingUrl(
-          setPairingTokenOnUrl(new URL("/pair", state.url), issued.credential).toString(),
-        );
+        const url = setPairingTokenOnUrl(new URL("/pair", state.url), issued.credential);
+        const fragment = new URLSearchParams(url.hash.slice(1));
+        fragment.set("tunnelToken", connectToken.value.token);
+        url.hash = fragment.toString();
+        setPairingUrl(url.toString());
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not create a pairing link.");
@@ -97,7 +109,7 @@ export function DevTunnelSettings({
           state?.url ??
           (state?.status === "starting"
             ? "Connecting…"
-            : "Private HTTPS access from another browser. Install devtunnel and sign in on this server first.")
+            : "Private access from T3 Code apps and browsers. Install devtunnel and sign in on this server first.")
         }
         status={
           error || state?.error || query.error ? (
@@ -144,10 +156,10 @@ export function DevTunnelSettings({
           <DialogHeader>
             <DialogTitle>Dev Tunnels pairing link</DialogTitle>
             <DialogDescription>
-              On the other device, open the tunnel address and sign in with the same Microsoft or
-              GitHub account first. Then open this reusable link in that browser. It works for
-              multiple devices for 30 days. Revoke it in Authorized clients when you no longer need
-              it.
+              Paste this link into Add environment in the T3 Code app. Native tunnel access expires
+              after about a day; use Renew tunnel access if needed. For browser access, sign in to
+              the tunnel with the owning Microsoft or GitHub account first. Revoke the pairing link
+              in Authorized clients when you no longer need it.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>

@@ -1,5 +1,7 @@
 import { EnvironmentId, type ExecutionEnvironmentDescriptor } from "@t3tools/contracts";
 import { RelayEnvironmentEndpointFailure } from "@t3tools/contracts/relay";
+import { isTunnelTokenExpired } from "@t3tools/shared/remote";
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 const ConnectionTargetBase = {
@@ -155,8 +157,24 @@ export interface PreparedConnection {
   readonly httpAuthorization: PreparedHttpAuthorization | null;
   readonly target: ConnectionTarget;
   /** What the server said about itself while this connection was prepared. */
-  readonly descriptor?: ExecutionEnvironmentDescriptor;
+  readonly descriptor?: ExecutionEnvironmentDescriptor | undefined;
+  readonly tunnelToken?: string | undefined;
 }
+
+export const assertTunnelTokenNotExpired = (
+  tunnelToken?: string | undefined,
+): Effect.Effect<void, ConnectionBlockedError> => {
+  if (isTunnelTokenExpired(tunnelToken)) {
+    return Effect.fail(
+      new ConnectionBlockedError({
+        reason: "authentication",
+        detail: "Dev Tunnel token has expired. Sign in again on the host to refresh.",
+        hop: "tunnel",
+      }),
+    );
+  }
+  return Effect.void;
+};
 
 export type SupervisorConnectionPhase =
   | "available"

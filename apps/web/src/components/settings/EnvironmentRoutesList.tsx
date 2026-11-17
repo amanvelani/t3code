@@ -28,6 +28,8 @@ import {
 import { GripVerticalIcon, PlusIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 
+import type { EnvironmentId } from "@t3tools/contracts";
+import { isDevTunnelRoute, startDevTunnelAuth } from "~/connection/devTunnelAuth";
 import { requestConfirmDialog } from "~/confirmDialog";
 import { environmentCatalog } from "~/connection/catalog";
 import { cn } from "~/lib/utils";
@@ -105,6 +107,7 @@ export function EnvironmentRoutesList({
             {routes.map((route, index) => (
               <SortableRouteRow
                 key={connectionRouteId(route.target)}
+                environmentId={environment.environmentId}
                 route={route}
                 position={index + 1}
                 inUse={connectionRouteId(route.target) === activeRouteId}
@@ -126,18 +129,34 @@ export function EnvironmentRoutesList({
 }
 
 function SortableRouteRow({
+  environmentId,
   route,
   position,
   inUse,
   removable,
   onRemove,
 }: {
+  readonly environmentId: EnvironmentId;
   readonly route: ConnectionRoute;
   readonly position: number;
   readonly inUse: boolean;
   readonly removable: boolean;
   readonly onRemove: () => void;
 }) {
+  const startAuth = useAtomCommand(startDevTunnelAuth, { reportFailure: true });
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const isTunnel = isDevTunnelRoute(route);
+
+  const handleReconnect = async () => {
+    setIsReconnecting(true);
+    try {
+      await startAuth({ environmentId, route });
+    } catch {
+      // Failure is reported by useAtomCommand
+    }
+    setIsReconnecting(false);
+  };
+
   const id = connectionRouteId(route.target);
   const label = connectionRouteLabel(route);
   const address = connectionRouteAddress(route);
@@ -176,6 +195,18 @@ function SortableRouteRow({
           </p>
         ) : null}
       </div>
+      {isTunnel ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          disabled={isReconnecting}
+          onClick={() => void handleReconnect()}
+          title="Sign in to Dev Tunnel"
+        >
+          {isReconnecting ? "Signing in…" : "Renew tunnel access"}
+        </Button>
+      ) : null}
       <button
         type="button"
         ref={setActivatorNodeRef}

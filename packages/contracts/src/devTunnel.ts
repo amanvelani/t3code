@@ -8,6 +8,12 @@ export const DevTunnelState = Schema.Struct({
 });
 export type DevTunnelState = typeof DevTunnelState.Type;
 
+export const DevTunnelConnectToken = Schema.Struct({
+  token: Schema.String,
+  expiresAtEpochMs: Schema.Number,
+});
+export type DevTunnelConnectToken = typeof DevTunnelConnectToken.Type;
+
 export class DevTunnelError extends Schema.TaggedError<DevTunnelError>()("DevTunnelError", {
   reason: Schema.Literals([
     "not-installed",

@@ -1,7 +1,11 @@
 import * as DateTime from "effect/DateTime";
 
 import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
-import { getPairingTokenFromUrl, setPairingTokenOnUrl } from "@t3tools/shared/remote";
+import {
+  getPairingTokenFromUrl,
+  readHashParams,
+  setPairingTokenOnUrl,
+} from "@t3tools/shared/remote";
 import { readHostedPairingRequest } from "../../hostedPairing";
 import {
   type ServerClientSessionRecord,
@@ -232,9 +236,12 @@ export function parseManualDesktopSshTarget(input: {
   };
 }
 
-export function parsePairingUrlFields(
-  input: string,
-): { readonly host: string; readonly pairingCode: string } | null {
+export function parsePairingUrlFields(input: string): {
+  readonly host: string;
+  readonly pairingCode: string;
+  readonly tunnelToken?: string;
+  readonly pairingUrl?: string;
+} | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
 
@@ -243,12 +250,21 @@ export function parsePairingUrlFields(
       /^[a-zA-Z][a-zA-Z\d+.-]*:\/\//u.test(trimmed) || trimmed.startsWith("//")
         ? trimmed
         : `https://${trimmed}`;
-    const url = new URL(urlLikeInput, window.location.origin);
+    const baseOrigin =
+      typeof window !== "undefined" && window.location?.origin
+        ? window.location.origin
+        : "http://localhost";
+    const url = new URL(urlLikeInput, baseOrigin);
+    const hashParams = readHashParams(url);
+    const tunnelToken = hashParams.get("tunnelToken")?.trim() || undefined;
+
     const hostedPairingRequest = readHostedPairingRequest(url);
     if (hostedPairingRequest) {
       return {
         host: hostedPairingRequest.host,
         pairingCode: hostedPairingRequest.token,
+        ...(tunnelToken ? { tunnelToken } : {}),
+        pairingUrl: trimmed,
       };
     }
 
@@ -257,6 +273,8 @@ export function parsePairingUrlFields(
     return {
       host: url.origin,
       pairingCode,
+      ...(tunnelToken ? { tunnelToken } : {}),
+      pairingUrl: trimmed,
     };
   } catch {
     return null;
@@ -266,9 +284,13 @@ export function parsePairingUrlFields(
 export function parseRemotePairingFields(input: {
   readonly host: string;
   readonly pairingCode: string;
+  readonly tunnelToken?: string;
+  readonly pairingUrl?: string;
 }): {
   readonly host: string;
   readonly pairingCode: string;
+  readonly tunnelToken?: string;
+  readonly pairingUrl?: string;
 } {
   const parsedPairingUrl = parsePairingUrlFields(input.host);
   if (parsedPairingUrl) return parsedPairingUrl;
@@ -281,7 +303,12 @@ export function parseRemotePairingFields(input: {
   if (!pairingCode) {
     throw new Error("Enter a pairing code.");
   }
-  return { host, pairingCode };
+  return {
+    host,
+    pairingCode,
+    ...(input.tunnelToken ? { tunnelToken: input.tunnelToken } : {}),
+    ...(input.pairingUrl ? { pairingUrl: input.pairingUrl } : {}),
+  };
 }
 
 export function formatDesktopSshConnectionError(error: unknown): string {

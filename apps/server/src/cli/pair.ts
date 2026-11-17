@@ -34,6 +34,8 @@ import { Command, Flag, GlobalFlag } from "effect/cli";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import * as DevTunnel from "../environment/DevTunnel.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as ServerConfig from "../config.ts";
 import * as ManagedLimits from "../policy/managedLimits.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
@@ -605,6 +607,12 @@ export const pairCommand = Command.make("pair", {
       }
 
       const config = yield* makePairServerConfig({ target, logLevel });
+      const tunnelCredential = flags.devTunnel
+        ? yield* DevTunnel.issuePersistedConnectToken().pipe(
+            Effect.provideService(ServerConfig.ServerConfig, config),
+            Effect.provide(ProcessRunner.layer),
+          )
+        : undefined;
       const issued = yield* mintPairingLink({
         config,
         scopes: flags.scopes,
@@ -612,7 +620,13 @@ export const pairCommand = Command.make("pair", {
         label: flags.label,
         reusable: flags.devTunnel,
       });
-      const pairingUrl = buildPairingUrl(pairingBaseUrl, issued.credential);
+      const pairingLink = new URL(buildPairingUrl(pairingBaseUrl, issued.credential));
+      if (tunnelCredential) {
+        const fragment = new URLSearchParams(pairingLink.hash.slice(1));
+        fragment.set("tunnelToken", tunnelCredential.token);
+        pairingLink.hash = fragment.toString();
+      }
+      const pairingUrl = pairingLink.toString();
       if (issued.reusable) {
         notes.push(
           "This link can pair multiple devices until it expires or is revoked in Settings > Connections.",

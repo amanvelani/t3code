@@ -24,6 +24,7 @@ import * as Schema from "effect/Schema";
 
 import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
 import * as DesktopSavedEnvironments from "../settings/DesktopSavedEnvironments.ts";
+import * as DesktopDevTunnelInterceptor from "./DesktopDevTunnelInterceptor.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 
 const EncryptedConnectionCatalogDocument = Schema.Struct({
@@ -383,6 +384,7 @@ export const make = Effect.gen(function* () {
   const safeStorage = yield* ElectronSafeStorage.ElectronSafeStorage;
   const random = yield* SecureRandom.SecureRandom;
   const savedEnvironments = yield* DesktopSavedEnvironments.DesktopSavedEnvironments;
+  const interceptor = yield* DesktopDevTunnelInterceptor.DesktopDevTunnelInterceptor;
   const catalogPath = path.join(environment.stateDir, "connection-catalog.json");
   const encryptionAvailable = safeStorage.isEncryptionAvailable.pipe(
     Effect.mapError(
@@ -422,6 +424,7 @@ export const make = Effect.gen(function* () {
 
   const migrateLegacyCatalog = Effect.gen(function* () {
     if (!(yield* encryptionAvailable)) {
+      yield* interceptor.updateCatalog(null);
       return Option.none<string>();
     }
     const records = yield* savedEnvironments.getRegistry.pipe(
@@ -435,6 +438,7 @@ export const make = Effect.gen(function* () {
       ),
     );
     if (records.length === 0) {
+      yield* interceptor.updateCatalog(null);
       return Option.none<string>();
     }
     const catalog = yield* migrateSavedEnvironmentRecords(records, savedEnvironments, catalogPath);
@@ -458,8 +462,28 @@ export const make = Effect.gen(function* () {
           }),
       ),
     );
+    yield* interceptor.updateCatalog(encoded);
     return Option.some(encoded);
   });
+
+  const initialDocument = yield* readDocument(fileSystem, catalogPath).pipe(Effect.option);
+  if (Option.isSome(initialDocument) && Option.isSome(initialDocument.value)) {
+    const encAvail = yield* safeStorage.isEncryptionAvailable.pipe(
+      Effect.orElseSucceed(() => false),
+    );
+    if (encAvail) {
+      const initialDecrypted = yield* decodeSecretBytes(
+        catalogPath,
+        initialDocument.value.value.encryptedCatalog,
+      ).pipe(
+        Effect.flatMap((bytes) => safeStorage.decryptString(bytes)),
+        Effect.option,
+      );
+      if (Option.isSome(initialDecrypted)) {
+        yield* interceptor.updateCatalog(initialDecrypted.value);
+      }
+    }
+  }
 
   return DesktopConnectionCatalogStore.of({
     get: Effect.gen(function* () {
@@ -468,6 +492,7 @@ export const make = Effect.gen(function* () {
         return yield* migrateLegacyCatalog;
       }
       if (!(yield* encryptionAvailable)) {
+        yield* interceptor.updateCatalog(null);
         return Option.none<string>();
       }
       const decrypted = yield* decodeSecretBytes(catalogPath, document.value.encryptedCatalog).pipe(
@@ -484,6 +509,7 @@ export const make = Effect.gen(function* () {
           ),
         ),
       );
+      yield* interceptor.updateCatalog(decrypted);
       return Option.some(decrypted);
     }).pipe(Effect.withSpan("desktop.connectionCatalogStore.get")),
     set: Effect.fn("desktop.connectionCatalogStore.set")(function* (catalog) {
@@ -491,9 +517,12 @@ export const make = Effect.gen(function* () {
         return false;
       }
       yield* writeCatalog(catalog);
+      yield* interceptor.updateCatalog(catalog);
       return true;
     }),
   });
 });
 
-export const layer = Layer.effect(DesktopConnectionCatalogStore, make);
+export const layer = Layer.effect(DesktopConnectionCatalogStore, make).pipe(
+  Layer.provideMerge(DesktopDevTunnelInterceptor.layer),
+);

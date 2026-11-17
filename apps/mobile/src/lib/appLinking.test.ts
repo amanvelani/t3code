@@ -26,12 +26,15 @@ describe("shouldHandleAppLink", () => {
     expect(shouldHandleAppLink(url, true)).toBe(true);
   });
 
-  it.each(["t3code://expo-development-client/?url=x", "t3code://expo-sharing/anything"])(
-    "ignores lifecycle URL %s",
-    (url) => {
-      expect(shouldHandleAppLink(url, true)).toBe(false);
-    },
-  );
+  it.each([
+    "t3code://expo-development-client/?url=x",
+    "t3code://expo-sharing/anything",
+    "t3code://dev-tunnel-auth",
+    "t3code-dev://dev-tunnel-auth#state=xyz&tunnelToken=abc",
+    "t3code-preview://dev-tunnel-auth",
+  ])("ignores lifecycle or unsolicited dev-tunnel-auth URL %s", (url) => {
+    expect(shouldHandleAppLink(url, true)).toBe(false);
+  });
 });
 
 describe("cloud-only deep links", () => {

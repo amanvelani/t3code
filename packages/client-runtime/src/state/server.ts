@@ -1470,6 +1470,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:set-dev-tunnel-enabled",
       tag: WS_METHODS.serverSetDevTunnelEnabled,
     }),
+    issueDevTunnelToken: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:issue-dev-tunnel-token",
+      tag: WS_METHODS.serverIssueDevTunnelToken,
+    }),
     npmRelease: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:npm-release",
       tag: WS_METHODS.serverGetNpmRelease,

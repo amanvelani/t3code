@@ -48,7 +48,8 @@ import {
   appendOrchestrationProtocol,
   orchestrationProtocolCompatibilityError,
 } from "./compatibility.ts";
-import { credentialConnectionId } from "./routes.ts";
+import { credentialConnectionId, isLearned } from "./routes.ts";
+import { isDevTunnelUrl } from "@t3tools/shared/remote";
 import { fetchRemoteEnvironmentDescriptor } from "../environment/descriptor.ts";
 
 export class ConnectionResolver extends Context.Service<
@@ -169,6 +170,10 @@ const makeBearerBroker = Effect.fn("clientRuntime.connection.broker.makeBearer")
       wsBaseUrl: profile.wsBaseUrl,
       bearerToken: credential.token,
       connectionMethod: "direct",
+      tunnelToken:
+        !isLearned(entry) && isDevTunnelUrl(profile.httpBaseUrl)
+          ? credential.tunnelToken
+          : undefined,
     });
     return {
       ...authorized,
@@ -280,7 +285,7 @@ export const make = Effect.gen(function* () {
       "connection.target.kind": target._tag,
     });
     const authorized: PreparedConnection & {
-      readonly descriptor?: ExecutionEnvironmentDescriptor;
+      readonly descriptor?: ExecutionEnvironmentDescriptor | undefined;
     } = yield* (() => {
       switch (target._tag) {
         case "PrimaryConnectionTarget":
@@ -298,6 +303,7 @@ export const make = Effect.gen(function* () {
       authorizedDescriptor ??
       (yield* fetchRemoteEnvironmentDescriptor({
         httpBaseUrl: prepared.httpBaseUrl,
+        tunnelToken: prepared.tunnelToken,
       }).pipe(
         Effect.mapError(mapRemoteEnvironmentError),
         Effect.provideService(HttpClient.HttpClient, httpClient),

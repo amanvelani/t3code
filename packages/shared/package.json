@@ -7,6 +7,10 @@
       "types": "./src/pullRequestAnchor.ts",
       "import": "./src/pullRequestAnchor.ts"
     },
+    "./devTunnelAuth": {
+      "types": "./src/devTunnelAuth.ts",
+      "import": "./src/devTunnelAuth.ts"
+    },
     "./changedFileKind": {
       "types": "./src/changedFileKind.ts",
       "import": "./src/changedFileKind.ts"

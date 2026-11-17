@@ -368,7 +368,7 @@ import {
   ListTextGeneratorModelsResult,
   TextGeneratorError,
 } from "./settings.ts";
-import { DevTunnelError, DevTunnelState } from "./devTunnel.ts";
+import { DevTunnelConnectToken, DevTunnelError, DevTunnelState } from "./devTunnel.ts";
 import {
   ScheduledTaskDeleteInput,
   ScheduledTaskDeleteResult,
@@ -521,6 +521,7 @@ export const WS_METHODS = {
   serverSubscribeDevTunnel: "server.subscribeDevTunnel",
   serverSetDevTunnelEnabled: "server.setDevTunnelEnabled",
   serverReclaimDatabaseSpace: "server.reclaimDatabaseSpace",
+  serverIssueDevTunnelToken: "server.issueDevTunnelToken",
   peerLinksList: "peerLinks.list",
   peerLinksLink: "peerLinks.link",
   peerLinksUnlink: "peerLinks.unlink",
@@ -873,6 +874,12 @@ const WsServerSubscribeDevTunnelRpc = Rpc.make(WS_METHODS.serverSubscribeDevTunn
 const WsServerSetDevTunnelEnabledRpc = Rpc.make(WS_METHODS.serverSetDevTunnelEnabled, {
   payload: Schema.Struct({ enabled: Schema.Boolean }),
   success: DevTunnelState,
+  error: Schema.Union([DevTunnelError, EnvironmentAuthorizationError]),
+});
+
+const WsServerIssueDevTunnelTokenRpc = Rpc.make(WS_METHODS.serverIssueDevTunnelToken, {
+  payload: Schema.Struct({}),
+  success: DevTunnelConnectToken,
   error: Schema.Union([DevTunnelError, EnvironmentAuthorizationError]),
 });
 
@@ -2122,6 +2129,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerSubscribeDevTunnelRpc,
   WsServerSetDevTunnelEnabledRpc,
   WsServerReclaimDatabaseSpaceRpc,
+  WsServerIssueDevTunnelTokenRpc,
   WsServerUpdateSettingsRpc,
   WsPeerLinksListRpc,
   WsPeerLinksLinkRpc,

@@ -196,7 +196,7 @@ If that port is already in use, choose another with
 
 ### Microsoft Dev Tunnels
 
-Use a private Microsoft Dev Tunnel to connect from another browser without installing
+Use a private Microsoft Dev Tunnel to connect from a T3 Code app or browser without installing
 Tailscale on either device. Install the `devtunnel` CLI on the machine running T3 Code,
 then sign in with `devtunnel user login -d`. See Microsoft's
 [installation instructions](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/get-started).
@@ -205,17 +205,21 @@ Enable **Dev Tunnels** under **Settings → Connections** on the host, or start 
 command-line server with `t3 serve --dev-tunnel`. T3 Code remembers the tunnel and
 reuses it when the server restarts. Turn the setting off to stop access through it.
 
-Open the displayed tunnel address in the other device's browser and sign in with
-the same Microsoft or GitHub account. Then use **Create pairing link** on the host,
-or run `t3 pair --dev-tunnel`, and open that reusable link in the signed-in browser.
-The same link can pair multiple devices for 30 days. Revoke unused links under
+Use **Create pairing link** on the host, or run `t3 pair --dev-tunnel`, and paste the
+fresh link into **Add environment** in the desktop or mobile app. Each machine has
+its own tunnel and can be added separately. For browser access, first open the tunnel
+address and sign in with the owning Microsoft or GitHub account, then open the pairing link.
+The T3 pairing link can pair multiple devices for 30 days. Revoke unused links under
 **Settings → Connections → Authorized clients**; already paired devices stay connected
 until their client access is revoked. `--ttl` overrides the link expiry when using the CLI.
 T3 Code and the host machine must stay running while you work.
 
-Private tunnel sign-in works through the directly served browser client. The hosted
-app at app.t3.codes and native desktop/mobile connections do not handle this extra
-sign-in; open the tunnel address directly in a browser instead.
+The link's native tunnel credential expires after about a day. Create a fresh link
+if it expires before the first connection. Connected apps renew tunnel access
+automatically. After a long time offline, choose **Renew tunnel access** in the
+machine's connection settings and complete the browser sign-in to reconnect.
+The hosted app at app.t3.codes does not support private tunnel sign-in; use a native
+app or open the tunnel address directly in a browser.
 
 ### Hosted web app
 

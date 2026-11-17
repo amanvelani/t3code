@@ -66,6 +66,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.serverSubscribeDevTunnel]: "server",
   [WS_METHODS.serverSetDevTunnelEnabled]: "server",
   [WS_METHODS.serverReclaimDatabaseSpace]: "server",
+  [WS_METHODS.serverIssueDevTunnelToken]: "server",
   [WS_METHODS.peerLinksList]: "peerLinks",
   [WS_METHODS.peerLinksLink]: "peerLinks",
   [WS_METHODS.peerLinksUnlink]: "peerLinks",

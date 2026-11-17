@@ -93,6 +93,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.serverGetDatabaseStorage]: AuthOrchestrationReadScope,
   [WS_METHODS.serverSubscribeDevTunnel]: AuthAccessReadScope,
   [WS_METHODS.serverSetDevTunnelEnabled]: AuthAccessWriteScope,
+  [WS_METHODS.serverIssueDevTunnelToken]: AuthAccessWriteScope,
   [WS_METHODS.peerLinksList]: AuthAccessReadScope,
   [WS_METHODS.serverUpdateSettings]: AuthSettingsWriteScope,
   [WS_METHODS.serverSearchAcpRegistry]: AuthOrchestrationReadScope,

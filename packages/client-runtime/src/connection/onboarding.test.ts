@@ -20,6 +20,7 @@ import {
   BearerConnectionCredential,
   BearerConnectionProfile,
   BearerConnectionRegistration,
+  type ConnectionCredential,
   PrimaryConnectionRegistration,
 } from "./catalog.ts";
 import * as Connectivity from "./connectivity.ts";
@@ -664,6 +665,178 @@ describe("connection onboarding", () => {
         },
         // Saved so the first connect reuses this pairing instead of adding another.
         credential: { token: "bearer-token" },
+      });
+    }),
+  );
+
+  it.effect("preserves optional tunnelToken on re-pair when omitted from input", () =>
+    Effect.gen(function* () {
+      const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
+      const credentialsMap = new Map<string, ConnectionCredential>();
+
+      const dependencies = Layer.mergeAll(
+        layerClientPresentation,
+        layerPairingHttp(calls),
+        Layer.mock(Persistence.ConnectionTargetStore)({
+          list: Effect.succeed([]),
+          listDisabled: Effect.succeed([]),
+        }),
+        Layer.mock(Persistence.ConnectionRegistrationStore)({
+          register: () => Effect.void,
+          setEnabled: () => Effect.void,
+        }),
+        Layer.mock(Persistence.EnvironmentCacheStore)({}),
+        Layer.mock(ConnectionProfileStore.ConnectionProfileStore)({}),
+        Layer.succeed(
+          ConnectionCredentialStore.ConnectionCredentialStore,
+          ConnectionCredentialStore.ConnectionCredentialStore.of({
+            get: (id) => Effect.succeed(Option.fromNullishOr(credentialsMap.get(id))),
+            put: (id, cred) => Effect.sync(() => void credentialsMap.set(id, cred)),
+            remove: (id) => Effect.sync(() => void credentialsMap.delete(id)),
+          }),
+        ),
+        Layer.mock(ClientCapabilities.SshEnvironmentGateway)({}),
+        Layer.succeed(
+          Connectivity.Connectivity,
+          Connectivity.Connectivity.of({ status: Effect.succeed("online"), changes: Stream.never }),
+        ),
+        Layer.mock(ConnectionDriver.ConnectionDriver)({ connect: () => Effect.never }),
+        Layer.succeed(
+          ConnectionWakeups.ConnectionWakeups,
+          ConnectionWakeups.ConnectionWakeups.of({ changes: Stream.never }),
+        ),
+      );
+      const env = Onboarding.layer.pipe(
+        Layer.provideMerge(EnvironmentRegistry.layer.pipe(Layer.provideMerge(dependencies))),
+      );
+
+      // Initial pairing with tunnelToken
+      const initial = yield* preparePairingRegistration({
+        host: "machine-3773.usw2.devtunnels.ms",
+        pairingCode: "pairing-code-1",
+        tunnelToken: "saved-tunnel-token",
+      }).pipe(Effect.provide(env));
+
+      expect(initial.credential.tunnelToken).toBe("saved-tunnel-token");
+      credentialsMap.set(initial.target.connectionId, initial.credential);
+
+      expect(calls[0]!.init.headers).toEqual(
+        expect.objectContaining({ "x-tunnel-authorization": "tunnel saved-tunnel-token" }),
+      );
+
+      // Re-pair without specifying tunnelToken
+      calls.length = 0;
+      const repaired = yield* preparePairingRegistration({
+        host: "machine-3773.usw2.devtunnels.ms",
+        pairingCode: "pairing-code-2",
+        expectedEnvironmentId: initial.target.environmentId,
+      }).pipe(Effect.provide(env));
+
+      expect(repaired.credential.tunnelToken).toBe("saved-tunnel-token");
+      expect(calls[0]!.init.headers).toEqual(
+        expect.objectContaining({ "x-tunnel-authorization": "tunnel saved-tunnel-token" }),
+      );
+    }),
+  );
+
+  it.effect(
+    "preserves optional tunnelToken on update when omitted, drops when changing to non-devtunnel origin",
+    () =>
+      Effect.gen(function* () {
+        const environmentId = EnvironmentId.make("environment-paired");
+        const devTunnelUrl = "https://machine-3773.usw2.devtunnels.ms/";
+        const connectionId = `bearer:${environmentId}:${new URL(devTunnelUrl).origin}`;
+        const existingEntry = {
+          target: new BearerConnectionTarget({
+            environmentId,
+            label: "Dev Tunnel Environment",
+            connectionId,
+          }),
+          profile: Option.some(
+            new BearerConnectionProfile({
+              connectionId,
+              environmentId,
+              label: "Dev Tunnel Environment",
+              httpBaseUrl: devTunnelUrl,
+              wsBaseUrl: "wss://machine-3773.usw2.devtunnels.ms/",
+            }),
+          ),
+          enabled: true,
+        };
+        const existingCredential = new BearerConnectionCredential({
+          token: "bearer-token",
+          tunnelToken: "existing-tunnel-token",
+        });
+
+        // Update 1: Change label, omit tunnelToken -> preserves existing tunnelToken
+        const update1 = yield* prepareBearerConnectionUpdate({
+          input: {
+            environmentId,
+            label: "Renamed Tunnel",
+            httpBaseUrl: devTunnelUrl,
+          },
+          entry: Option.some(existingEntry),
+          credential: Option.some(existingCredential),
+        });
+        expect(update1.credential.tunnelToken).toBe("existing-tunnel-token");
+
+        // Update 2: Change to non-devtunnel origin (LAN) -> drops tunnelToken
+        const update2 = yield* prepareBearerConnectionUpdate({
+          input: {
+            environmentId,
+            label: "Moved to LAN",
+            httpBaseUrl: "http://192.168.1.100:3773/",
+          },
+          entry: Option.some(existingEntry),
+          credential: Option.some(existingCredential),
+        });
+        expect(update2.credential.tunnelToken).toBeUndefined();
+        const movedTunnel = yield* prepareBearerConnectionUpdate({
+          input: {
+            environmentId,
+            label: "Another tunnel",
+            httpBaseUrl: "https://another.usw2.devtunnels.ms/",
+          },
+          entry: Option.some(existingEntry),
+          credential: Option.some(existingCredential),
+        });
+        expect(movedTunnel.credential.tunnelToken).toBeUndefined();
+
+        // Update 3: Explicitly supplying tunnelToken to non-devtunnel origin fails
+        const update3Error = yield* prepareBearerConnectionUpdate({
+          input: {
+            environmentId,
+            label: "Invalid LAN with Tunnel Token",
+            httpBaseUrl: "http://192.168.1.100:3773/",
+            tunnelToken: "should-fail",
+          },
+          entry: Option.some(existingEntry),
+          credential: Option.some(existingCredential),
+        }).pipe(Effect.flip);
+        expect(update3Error).toMatchObject({
+          _tag: "ConnectionBlockedError",
+          reason: "configuration",
+        });
+      }),
+  );
+
+  it.effect("blocks pairing when tunnelToken JWT is expired", () =>
+    Effect.gen(function* () {
+      const nowSec = 1700000000;
+      const expiredPayload = Buffer.from(JSON.stringify({ exp: nowSec - 120 })).toString(
+        "base64url",
+      );
+      const expiredJwt = `eyJhbGciOiJub25lIn0.${expiredPayload}.`;
+
+      const error = yield* preparePairingRegistration({
+        pairingUrl: `https://machine-3773.usw2.devtunnels.ms/#token=code&tunnelToken=${expiredJwt}`,
+      }).pipe(Effect.provide(layerPairingOnboarding()), Effect.flip);
+
+      expect(error).toMatchObject({
+        _tag: "ConnectionBlockedError",
+        reason: "authentication",
+        detail: "Dev Tunnel token has expired. Sign in again on the host to refresh.",
+        hop: "tunnel",
       });
     }),
   );

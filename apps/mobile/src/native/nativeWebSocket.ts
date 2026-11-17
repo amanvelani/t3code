@@ -1,3 +1,1 @@
-import * as Socket from "effect/socket/Socket";
-
-export const layer = Socket.layerWebSocketConstructorGlobal;
+export { layerNativeWebSocketConstructor as layer } from "../lib/nativeWebSocket";

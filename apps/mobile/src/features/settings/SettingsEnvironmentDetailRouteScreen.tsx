@@ -22,6 +22,9 @@ import { ProviderIcon } from "../../components/ProviderIcon";
 import { ScreenScrollView } from "../../components/ui/ScreenScrollView";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { environmentPresentations } from "../../state/presentation";
+import { AVAILABLE_CONNECTION_STATE } from "@t3tools/client-runtime/connection";
+import { environmentCatalog } from "../../connection/catalog";
+import { isDevTunnelAuthBlocked, renewDevTunnelAuth } from "../connection/devTunnelRecovery";
 import { serverEnvironment } from "../../state/server";
 import { environmentSession, useEnvironmentScope, readEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -63,9 +66,14 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
   const session = useAtomValue(environmentSession.sessionStateValueAtom(environmentId));
   const sessionResult = useAtomValue(environmentSession.sessionStateAtom(environmentId));
   const updateState = useAtomValue(serverEnvironment.updateStateAtom(environmentId));
-  const outdated =
-    useAtomValue(environmentPresentations.presentationAtom(environmentId))?.entry
-      .serverUpdateRequired === true;
+  const presentation = useAtomValue(environmentPresentations.presentationAtom(environmentId));
+  const connectionState = AsyncResult.getOrElse(
+    useAtomValue(environmentCatalog.stateAtom(environmentId)),
+    () => AVAILABLE_CONNECTION_STATE,
+  );
+  const devTunnelBlocked = isDevTunnelAuthBlocked(connectionState, presentation?.entry);
+  const [renewingTunnel, setRenewingTunnel] = useState(false);
+  const outdated = presentation?.entry.serverUpdateRequired === true;
   const updateServer = useAtomCommand(serverEnvironment.updateServer);
   const updateProvider = useAtomCommand(serverEnvironment.updateProvider);
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders);
@@ -78,6 +86,22 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
     mode: "promiseExit",
   });
   const release = releaseCheckValue(releaseCheck);
+
+  const handleRenewTunnel = async () => {
+    if (renewingTunnel) return;
+    setRenewingTunnel(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await renewDevTunnelAuth(environmentId);
+      if (result.status === "success") {
+        setNotice("Dev Tunnel access renewed.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to renew Dev Tunnel access.");
+    }
+    setRenewingTunnel(false);
+  };
 
   const connected = environment?.isEnabled === true && environment.connectionState === "connected";
   const allowed =
@@ -195,6 +219,14 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                 onSetEnabled={connections.onSetEnvironmentEnabled}
                 onUpdate={connections.onUpdateEnvironment}
               />
+              {devTunnelBlocked ? (
+                <SettingsActionRow
+                  icon="arrow.clockwise"
+                  label="Renew tunnel access"
+                  loading={renewingTunnel}
+                  onPress={() => void handleRenewTunnel()}
+                />
+              ) : null}
             </SettingsSection>
             <EnvironmentRoutesSection
               environmentId={environmentId}

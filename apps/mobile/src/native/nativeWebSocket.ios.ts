@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Socket from "effect/socket/Socket";
 import { requireOptionalNativeModule } from "expo";
+import { createNativeWebSocket, layerNativeWebSocketConstructor } from "../lib/nativeWebSocket";
 
 type EventType = "open" | "message" | "error" | "close";
 
@@ -178,7 +179,7 @@ function layerFromModule(native: NativeModule): Layer.Layer<Socket.WebSocketCons
       ),
       (sockets) => (url, options) => {
         if (options !== undefined && typeof options !== "string" && !Array.isArray(options)) {
-          throw new TypeError("WebSocket client options are not supported by the native WebSocket");
+          return createNativeWebSocket(url, options);
         }
         return new Connection(sockets, url, options);
       },
@@ -190,4 +191,4 @@ const native = requireOptionalNativeModule<NativeModule>("T3WebSocket");
 
 // A dev client built before this module shipped still has SocketRocket.
 export const layer: Layer.Layer<Socket.WebSocketConstructor> =
-  native === null ? Socket.layerWebSocketConstructorGlobal : layerFromModule(native);
+  native === null ? layerNativeWebSocketConstructor : layerFromModule(native);
