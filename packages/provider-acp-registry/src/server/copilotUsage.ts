@@ -45,9 +45,69 @@ const UsageRecordEntry = Schema.Struct({
 });
 const decodeEntry = Schema.decodeUnknownOption(UsageRecordEntry);
 
+/** A line copilot-relay writes per billed upstream call for the Codex and Claude it serves. */
+const RelayUsageEntry = Schema.Struct({
+  type: Schema.Literal("copilot.relay_usage"),
+  id: Schema.NonEmptyString,
+  timestamp: Schema.String,
+  copilot_usage: Schema.Struct({
+    total_nano_aiu: Schema.Unknown,
+    token_details: Schema.Array(
+      Schema.Struct({
+        model: Schema.optional(Schema.String),
+        token_type: Schema.optional(Schema.String),
+        token_count: Schema.optional(Schema.Unknown),
+      }),
+    ),
+  }),
+});
+const decodeRelayEntry = Schema.decodeUnknownOption(RelayUsageEntry);
+
+function nanoAiuCost(nanoAiu: unknown): number | null {
+  return typeof nanoAiu === "number" && Number.isFinite(nanoAiu) && nanoAiu >= 0
+    ? nanoAiu * USD_PER_NANO_AIU
+    : null;
+}
+
+function parseRelayRecord(parsed: unknown): readonly UsageRecord[] {
+  const decoded = decodeRelayEntry(parsed);
+  if (Option.isNone(decoded)) return [];
+  const entry = decoded.value;
+  const timestampMs = parseTimestampMs(entry.timestamp);
+  if (timestampMs === null) return [];
+  const details = entry.copilot_usage.token_details;
+  // Copilot bills input, cache_read and cache_write separately, so they are already disjoint.
+  const count = (type: string) =>
+    details.reduce(
+      (sum, detail) => (detail.token_type === type ? sum + tokenCount(detail.token_count) : sum),
+      0,
+    );
+  const totals = {
+    uncachedInputTokens: count("input"),
+    cachedInputTokens: count("cache_read"),
+    cacheCreationTokens: count("cache_write"),
+    outputTokens: count("output"),
+    reasoningTokens: 0,
+  };
+  const reportedCostUsd = nanoAiuCost(entry.copilot_usage.total_nano_aiu);
+  if (totalTokens(totals) === 0 && !reportedCostUsd) return [];
+  return [
+    {
+      provider: "copilot",
+      timestampMs,
+      model: details.find((detail) => detail.model)?.model ?? "unknown",
+      sessionId: "",
+      totals,
+      reportedCostUsd,
+      speed: "standard",
+      dedupeKey: JSON.stringify(["copilot-relay", entry.id]),
+    },
+  ];
+}
+
 function parseRecord(parsed: unknown): readonly UsageRecord[] {
   const decoded = decodeEntry(parsed);
-  if (Option.isNone(decoded)) return [];
+  if (Option.isNone(decoded)) return parseRelayRecord(parsed);
   const entry = decoded.value;
   const timestampMs = parseTimestampMs(entry.timestamp);
   if (timestampMs === null) return [];
@@ -64,11 +124,7 @@ function parseRecord(parsed: unknown): readonly UsageRecord[] {
     outputTokens,
     reasoningTokens: Math.min(outputTokens, tokenCount(usage.reasoningTokens)),
   };
-  const nanoAiu = usage.copilotUsage?.totalNanoAiu;
-  const reportedCostUsd =
-    typeof nanoAiu === "number" && Number.isFinite(nanoAiu) && nanoAiu >= 0
-      ? nanoAiu * USD_PER_NANO_AIU
-      : null;
+  const reportedCostUsd = nanoAiuCost(usage.copilotUsage?.totalNanoAiu);
   if (totalTokens(totals) === 0 && !reportedCostUsd) return [];
   const usageId = usage.accounting?.usageId;
   return [
@@ -102,8 +158,9 @@ export const copilotUsageFormat: TranscriptUsageFormat<unknown> = {
         copilotUsage: { totalNanoAiu: true },
       },
     },
+    copilot_usage: true,
   },
-  usageMarkers: ['"session.usage_record"'],
+  usageMarkers: ['"session.usage_record"', '"copilot.relay_usage"'],
   parseLine: (line) => {
     let parsed: unknown;
     try {
@@ -116,18 +173,22 @@ export const copilotUsageFormat: TranscriptUsageFormat<unknown> = {
   parseProjected: (projected) => parseRecord(projected),
 };
 
-/** Reads Copilot CLI session logs for ACP Registry accounts that run GitHub Copilot. */
+/**
+ * Reads copilot-relay's usage files, and Copilot CLI session logs for ACP Registry accounts that
+ * run GitHub Copilot. The relay is a host service, so its directory ignores instance settings.
+ */
 export const copilotUsageReader: ProviderUsageReader<AcpRegistrySettings, Path.Path> = {
   kind: "transcripts",
   provider: "copilot",
   format: copilotUsageFormat,
   directories: Effect.fn("copilotUsageReader.directories")(function* ({ config, environment }) {
-    if (config === undefined || !isCopilotAgent(config)) return [];
     const path = yield* Path.Path;
     const hostHome = yield* HostProcess.HomeDirectory;
     const platform = yield* HostProcess.Platform;
+    const relay = { dir: path.join(hostHome, ".copilot-relay", "usage") };
+    if (config === undefined || !isCopilotAgent(config)) return [relay];
     const dir = resolveCopilotSessionStateDir(environment, hostHome, platform, path);
-    return dir === null ? [] : [{ dir, fileName: "events.jsonl" }];
+    return dir === null ? [relay] : [relay, { dir, fileName: "events.jsonl" }];
   }),
 };
 

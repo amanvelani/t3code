@@ -194,6 +194,36 @@ describe("large usage records", () => {
     expect((await readTranscriptRecords(path, "copilot"))?.records).toEqual(small.records);
   });
 
+  it("prices copilot-relay records from their reported AI credits", async () => {
+    const entry = {
+      type: "copilot.relay_usage",
+      id: "upstream-1",
+      timestamp,
+      copilot_usage: {
+        total_nano_aiu: 5_352_640_000,
+        token_details: [
+          { model: "claude-opus-5.5", token_type: "input", token_count: 12 },
+          { model: "claude-opus-5.5", token_type: "cache_read", token_count: 300 },
+          { model: "claude-opus-5.5", token_type: "cache_write", token_count: 40 },
+          { model: "claude-opus-5.5", token_type: "output", token_count: 7 },
+        ],
+      },
+    };
+    const [record] = (await scan([entry], "copilot", "copilot-usage.2026-08-01")).records;
+    expect(record).toMatchObject({
+      provider: "copilot",
+      model: "claude-opus-5.5",
+      totals: {
+        uncachedInputTokens: 12,
+        cachedInputTokens: 300,
+        cacheCreationTokens: 40,
+        outputTokens: 7,
+        reasoningTokens: 0,
+      },
+    });
+    expect(record?.reportedCostUsd).toBeCloseTo(0.0535264, 10);
+  });
+
   it("keeps Pi model, cost, and fork identity after large assistant content", async () => {
     const entry = {
       type: "message",

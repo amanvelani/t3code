@@ -39,7 +39,9 @@ Muse Code reads native session history, including child sessions, from the home 
 configured Muse CLI. Its environment settings, including `XDG_DATA_HOME`, apply. Models without
 known prices still contribute tokens and appear as unpriced; set custom prices to estimate their cost.
 GitHub Copilot reads `~/.copilot/session-state`, or `session-state` under an absolute `COPILOT_HOME`,
-for ACP accounts that run the Copilot CLI. Its cost is the AI credits Copilot reports, at $0.01 per credit.
+for ACP accounts that run the Copilot CLI, and `~/.copilot-relay/usage` for copilot-relay. Codex and
+Claude Code requests sent through the relay appear under both their own provider and GitHub Copilot.
+Copilot cost is the AI credits Copilot reports, at $0.01 per credit.
 Use absolute paths or `~/` paths in the account's environment settings (`COPILOT_HOME` must be absolute);
 relative environment paths depend on each project's working directory and cannot be reliably discovered
 by Usage. Accounts
