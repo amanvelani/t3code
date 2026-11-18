@@ -19,6 +19,10 @@
       "types": "./src/testing.ts",
       "import": "./src/testing.ts"
     },
+    "./server/copilotUsage": {
+      "types": "./src/server/copilotUsage.ts",
+      "import": "./src/server/copilotUsage.ts"
+    },
     "./server/AcpRegistrySupport": {
       "types": "./src/server/AcpRegistrySupport.ts",
       "import": "./src/server/AcpRegistrySupport.ts"

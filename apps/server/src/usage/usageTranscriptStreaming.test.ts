@@ -155,6 +155,45 @@ describe("large usage records", () => {
     expect(completed?.records[0]?.totals).toEqual(small.records[0]?.totals);
   });
 
+  it("prices Copilot records from reported AI credits on both parse paths", async () => {
+    const entry = {
+      type: "session.usage_record",
+      id: "event-1",
+      timestamp,
+      data: {
+        usage: {
+          model: "gpt-6.1-terra",
+          inputTokens: 41_777,
+          outputTokens: 1_990,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 41_774,
+          reasoningTokens: 1_406,
+          accounting: { sourceSessionId: "session-1", usageId: "usage-1" },
+          copilotUsage: { totalNanoAiu: 4_351_935_000 },
+        },
+      },
+    };
+    const small = await scan([entry], "copilot", "small-copilot");
+    expect(small.records).toHaveLength(1);
+    expect(small.records[0]).toMatchObject({
+      provider: "copilot",
+      model: "gpt-6.1-terra",
+      sessionId: "session-1",
+      totals: {
+        uncachedInputTokens: 3,
+        cachedInputTokens: 0,
+        cacheCreationTokens: 41_774,
+        outputTokens: 1_990,
+        reasoningTokens: 1_406,
+      },
+    });
+    expect(small.records[0]?.reportedCostUsd).toBeCloseTo(0.04351935, 10);
+    const path = NodePath.join(dir, "large-copilot.jsonl");
+    const large = { ...entry, data: { usage: { ...entry.data.usage, discarded: content } } };
+    await NodeFSP.writeFile(path, JSON.stringify(large) + "\n");
+    expect((await readTranscriptRecords(path, "copilot"))?.records).toEqual(small.records);
+  });
+
   it("keeps Pi model, cost, and fork identity after large assistant content", async () => {
     const entry = {
       type: "message",
