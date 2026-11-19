@@ -28,6 +28,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Layer from "effect/Layer";
 import * as Cookies from "effect/http/Cookies";
+import * as Headers from "effect/http/Headers";
 import * as HttpEffect from "effect/http/HttpEffect";
 import { HttpServerRequest, HttpServerResponse } from "effect/http";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
@@ -231,11 +232,18 @@ export const layerAuthenticatedAuth = Layer.effect(
   EnvironmentAuthenticatedAuth,
   Effect.gen(function* () {
     const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
-    return (httpEffect) =>
+    return (httpEffect, { group, endpoint }) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
+        // Tunnel cookies must reach the gateway without overriding the client's T3 credential.
+        const authenticationRequest =
+          group.identifier === "devTunnel" &&
+          endpoint.identifier === "issueToken" &&
+          request.headers.authorization !== undefined
+            ? request.modify({ headers: Headers.remove(request.headers, "cookie") })
+            : request;
         const startTime = yield* Clock.currentTimeNanos;
-        const session = yield* serverAuth.authenticateHttpRequest(request).pipe(
+        const session = yield* serverAuth.authenticateHttpRequest(authenticationRequest).pipe(
           Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, (error) =>
             failEnvironmentAuthInvalid(
               EnvironmentAuth.serverAuthCredentialReason(error),

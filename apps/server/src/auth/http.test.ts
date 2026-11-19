@@ -167,11 +167,37 @@ it.effect("sets the selected browser session cookies through the HTTP route", ()
           expect(restrictedCookies[0]).toMatch(/^t3_session_/);
           expect(restrictedCookies[0]).not.toContain("t3_dev_session_");
           const restrictedCookie = restrictedCookies[0]?.split(";", 1)[0] ?? "";
+          const restrictedAccessResponse = await environmentA.handler(
+            new Request("http://127.0.0.1/oauth/token", {
+              method: "POST",
+              body: new URLSearchParams({
+                grant_type: AuthTokenExchangeGrantType,
+                subject_token: DEV_TOKEN,
+                subject_token_type: AuthEnvironmentBootstrapTokenType,
+                requested_token_type: AuthAccessTokenType,
+                scope: "orchestration:read",
+              }),
+            }),
+            requestContext,
+          );
+          expect(restrictedAccessResponse.status).toBe(200);
+          const restrictedAccess = (await restrictedAccessResponse.json()) as {
+            access_token: string;
+          };
           for (const [headers, expectedStatus] of [
             [{}, 401],
             [{ authorization: "Bearer invalid-token" }, 401],
             [{ cookie: restrictedCookie }, 403],
             [{ cookie: devCookieHeader }, 200],
+            [{ authorization: `Bearer ${DEV_TOKEN}`, cookie: restrictedCookie }, 200],
+            [{ authorization: "Bearer invalid-token", cookie: devCookieHeader }, 401],
+            [
+              {
+                authorization: `Bearer ${restrictedAccess.access_token}`,
+                cookie: devCookieHeader,
+              },
+              403,
+            ],
           ] as const) {
             const renewed = await environmentA.handler(
               postJson("/api/dev-tunnel/token", {}, headers),
@@ -186,6 +212,15 @@ it.effect("sets the selected browser session cookies through the HTTP route", ()
               });
             }
           }
+          const cookieScopedResponse = await environmentA.handler(
+            postJson(
+              "/api/auth/pairing-token",
+              { scopes: ["orchestration:read"] },
+              { authorization: `Bearer ${DEV_TOKEN}`, cookie: restrictedCookie },
+            ),
+            requestContext,
+          );
+          expect(cookieScopedResponse.status).toBe(403);
         }),
       ([environmentA, environmentB]) =>
         Effect.promise(() => Promise.all([environmentA.dispose(), environmentB.dispose()])),

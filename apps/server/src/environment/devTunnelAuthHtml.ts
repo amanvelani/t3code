@@ -23,11 +23,19 @@ if (!valid) {
     try {
       const response = await fetch("/api/dev-tunnel/token", {
         method: "POST", headers: { authorization: "Bearer " + credential },
-        credentials: "omit", redirect: "error", cache: "no-store"
+        credentials: "same-origin", redirect: "error", cache: "no-store"
       });
-      if (!response.ok) throw new Error(response.status === 401 || response.status === 403
-        ? "This T3 session is no longer authorized. Create a new pairing link on the host."
-        : "Could not renew access. Check Dev Tunnels and the account login on the host.");
+      if (!response.ok) {
+        if (/(?:^|,\\s*)tunnel(?:\\s|$)/i.test(response.headers.get("www-authenticate") || "")) {
+          throw new Error("The Dev Tunnel rejected browser sign-in. Choose Renew tunnel access in T3 Code again and sign in.");
+        }
+        const failure = await response.json().catch(() => null);
+        throw new Error(failure && failure.code === "auth_invalid"
+          ? "This T3 session is no longer authorized. Create a new pairing link on the host."
+          : failure && failure.code === "insufficient_scope"
+            ? "This T3 session cannot renew tunnel access. Create a new pairing link on the host with access management permission."
+            : "Could not renew access. Check Dev Tunnels and the account login on the host.");
+      }
       const result = await response.json();
       if (typeof result.token !== "string" || !result.token ||
           !Number.isFinite(result.expiresAtEpochMs) || result.expiresAtEpochMs <= Date.now()) {
