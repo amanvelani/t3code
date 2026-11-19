@@ -49,6 +49,7 @@ export const PROVIDER_PRESENTATION: Record<UsageProviderKind, UsageProviderPrese
     driverKind: ProviderDriverKind.make("muse"),
   },
   copilot: {
+    // oxlint-disable-next-line t3code/no-untranslated-copy -- provider name
     label: "GitHub Copilot",
     color: "#8957e5",
     driverKind: ProviderDriverKind.make("acpRegistry"),

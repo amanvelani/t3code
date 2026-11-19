@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { EnvironmentId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import { BearerConnectionCredential } from "./catalog.ts";
+import { BearerConnectionCredential, type ConnectionCredential } from "./catalog.ts";
 import * as CredentialStore from "./credentialStore.ts";
 import { BearerConnectionTarget } from "./model.ts";
 import { renewDevTunnelAccess } from "./devTunnelRenewal.ts";
@@ -16,7 +16,7 @@ describe("Dev Tunnel credential renewal", () => {
         connectionId: "machine-a-tunnel",
         label: "A",
       });
-      const saved = new Map([
+      const saved = new Map<string, ConnectionCredential>([
         [
           target.connectionId,
           new BearerConnectionCredential({ token: "t3-a", tunnelToken: token }),

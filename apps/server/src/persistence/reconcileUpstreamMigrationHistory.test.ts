@@ -43,6 +43,18 @@ import QueuedTurnInputIndex from "./Migrations/088_QueuedTurnInputIndex.ts";
 import ProjectionProjectsCustomTitle from "./Migrations/089_ProjectionProjectsCustomTitle.ts";
 import TurnItemTypeStatusIndex from "./Migrations/090_TurnItemTypeStatusIndex.ts";
 
+import ShellThreadReadIndexes from "./Migrations/091_ShellThreadReadIndexes.ts";
+import AuthConnectDevices from "./Migrations/092_AuthConnectDevices.ts";
+import AuthConnectDeniedRequests from "./Migrations/093_AuthConnectDeniedRequests.ts";
+import QueuedTurnInputIndexJsonValid from "./Migrations/094_QueuedTurnInputIndexJsonValid.ts";
+import ProviderTurnAttemptIndex from "./Migrations/095_ProviderTurnAttemptIndex.ts";
+import TurnItemMessageOrdinalIndex from "./Migrations/096_TurnItemMessageOrdinalIndex.ts";
+import TurnItemInlineWorkOutput from "./Migrations/097_TurnItemInlineWorkOutput.ts";
+import RepairStaleTitleRegeneration from "./Migrations/098_RepairStaleTitleRegeneration.ts";
+import IssueTrackerBindings from "./Migrations/099_IssueTrackerBindings.ts";
+import ActiveShellIndexIndexes from "./Migrations/100_ActiveShellIndexIndexes.ts";
+import BackgroundRecoveryIndexes from "./Migrations/101_BackgroundRecoveryIndexes.ts";
+
 const officialMigrations = [
   [57, "ScheduledTaskWebhooks", ScheduledTaskWebhooks],
   [58, "WebhookRelayDeliveries", WebhookRelayDeliveries],
@@ -76,6 +88,17 @@ const officialMigrations = [
   [86, "QueuedTurnInputIndex", QueuedTurnInputIndex],
   [87, "ProjectionProjectsCustomTitle", ProjectionProjectsCustomTitle],
   [88, "TurnItemTypeStatusIndex", TurnItemTypeStatusIndex],
+  [89, "ShellThreadReadIndexes", ShellThreadReadIndexes],
+  [90, "AuthConnectDevices", AuthConnectDevices],
+  [91, "AuthConnectDeniedRequests", AuthConnectDeniedRequests],
+  [92, "QueuedTurnInputIndexJsonValid", QueuedTurnInputIndexJsonValid],
+  [93, "ProviderTurnAttemptIndex", ProviderTurnAttemptIndex],
+  [94, "TurnItemMessageOrdinalIndex", TurnItemMessageOrdinalIndex],
+  [95, "TurnItemInlineWorkOutput", TurnItemInlineWorkOutput],
+  [96, "RepairStaleTitleRegeneration", RepairStaleTitleRegeneration],
+  [97, "IssueTrackerBindings", IssueTrackerBindings],
+  [98, "ActiveShellIndexIndexes", ActiveShellIndexIndexes],
+  [99, "BackgroundRecoveryIndexes", BackgroundRecoveryIndexes],
 ] as const;
 
 const seedOfficial = Effect.fnUntraced(function* (through: number) {
@@ -163,7 +186,7 @@ it.effect.each([65, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 
 
 it.effect.each([
   57, 62, 65, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87,
-  88,
+  88, 90, 96, 99,
 ])("upgrades official history through %s once and preserves content", (through) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;

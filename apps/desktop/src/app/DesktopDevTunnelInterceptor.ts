@@ -63,7 +63,7 @@ export function parseTunnelTokensFromCatalog(catalogJson: string | null): Map<st
     const credential = catalog.credentials.find(
       (entry) => entry.connectionId === profile.connectionId,
     )?.credential;
-    if (!credential?.tunnelToken) continue;
+    if (credential?._tag !== "BearerConnectionCredential" || !credential.tunnelToken) continue;
     for (const origin of extractExactSecureOrigins(profile.httpBaseUrl, profile.wsBaseUrl)) {
       tokens.set(origin, credential.tunnelToken.trim());
     }

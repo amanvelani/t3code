@@ -104,6 +104,17 @@ import Migration0087 from "./Migrations/087_TurnItemCounts.ts";
 import Migration0088 from "./Migrations/088_QueuedTurnInputIndex.ts";
 import Migration0089 from "./Migrations/089_ProjectionProjectsCustomTitle.ts";
 import Migration0090 from "./Migrations/090_TurnItemTypeStatusIndex.ts";
+import Migration0091 from "./Migrations/091_ShellThreadReadIndexes.ts";
+import Migration0092 from "./Migrations/092_AuthConnectDevices.ts";
+import Migration0093 from "./Migrations/093_AuthConnectDeniedRequests.ts";
+import Migration0094 from "./Migrations/094_QueuedTurnInputIndexJsonValid.ts";
+import Migration0095 from "./Migrations/095_ProviderTurnAttemptIndex.ts";
+import Migration0096 from "./Migrations/096_TurnItemMessageOrdinalIndex.ts";
+import Migration0097 from "./Migrations/097_TurnItemInlineWorkOutput.ts";
+import Migration0098 from "./Migrations/098_RepairStaleTitleRegeneration.ts";
+import Migration0099 from "./Migrations/099_IssueTrackerBindings.ts";
+import Migration0100 from "./Migrations/100_ActiveShellIndexIndexes.ts";
+import Migration0101 from "./Migrations/101_BackgroundRecoveryIndexes.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -198,6 +209,17 @@ const migrationEntries = [
   [88, "QueuedTurnInputIndex", Migration0088],
   [89, "ProjectionProjectsCustomTitle", Migration0089],
   [90, "TurnItemTypeStatusIndex", Migration0090],
+  [91, "ShellThreadReadIndexes", Migration0091],
+  [92, "AuthConnectDevices", Migration0092],
+  [93, "AuthConnectDeniedRequests", Migration0093],
+  [94, "QueuedTurnInputIndexJsonValid", Migration0094],
+  [95, "ProviderTurnAttemptIndex", Migration0095],
+  [96, "TurnItemMessageOrdinalIndex", Migration0096],
+  [97, "TurnItemInlineWorkOutput", Migration0097],
+  [98, "RepairStaleTitleRegeneration", Migration0098],
+  [99, "IssueTrackerBindings", Migration0099],
+  [100, "ActiveShellIndexIndexes", Migration0100],
+  [101, "BackgroundRecoveryIndexes", Migration0101],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -286,10 +308,12 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
 }: RunMigrationsOptions = {}) {
   yield* reconcileForkMigrationHistory();
   // The desktop waits past its readiness budget until the finished line follows this one.
-  if (yield* hasPendingMigrations()) yield* Effect.log(DATABASE_MIGRATIONS_STARTED_MESSAGE);
+  const hasPending = yield* hasPendingMigrations();
+  if (hasPending) yield* Effect.log(DATABASE_MIGRATIONS_STARTED_MESSAGE);
   const includesV2 =
     toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_V2_MIGRATION_ID;
-  const previewMigrations = includesV2 ? yield* reconcileV2PreviewMigration() : [];
+  // The reconcile takes the write lock; CLI startup must not contend with the server for a no-op.
+  const previewMigrations = includesV2 && hasPending ? yield* reconcileV2PreviewMigration() : [];
   if (includesV2) {
     yield* reconcileUpstreamMigrationHistory(migrationManifest);
     yield* assertV2MigrationsCanRun(toMigrationInclusive);

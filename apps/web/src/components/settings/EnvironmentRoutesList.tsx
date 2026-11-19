@@ -20,12 +20,13 @@ import {
   type ConnectionRoute,
   connectionRouteAddress,
   connectionRouteId,
-  connectionRouteLabel,
+  connectionRouteLabelText,
   connectionRoutes,
   isLearned,
   pendingRouteOrder,
 } from "@t3tools/client-runtime/connection";
 import { GripVerticalIcon, PlusIcon, XIcon } from "lucide-react";
+import { T, useGT, useMessages } from "gt-react";
 import { useState } from "react";
 
 import type { EnvironmentId } from "@t3tools/contracts";
@@ -56,6 +57,8 @@ export function EnvironmentRoutesList({
   const byId = new Map(saved.map((route) => [connectionRouteId(route.target), route]));
   const routes = order.flatMap((id) => byId.get(id) ?? []);
 
+  const gt = useGT();
+  const messages = useMessages();
   const prepared = usePreparedConnection(environment.environmentId);
   const activeRouteId =
     prepared._tag === "Some" && environment.connection.phase === "connected"
@@ -71,7 +74,12 @@ export function EnvironmentRoutesList({
   const confirmRemove = async (route: ConnectionRoute) => {
     const address = connectionRouteAddress(route);
     const confirmed = await requestConfirmDialog(
-      `Remove ${connectionRouteLabel(route)} route?${address === null ? "" : `\n${address}`}`,
+      address === null
+        ? gt("Remove {route} route?", { route: connectionRouteLabelText(route, messages) })
+        : gt("Remove {route} route?\n{address}", {
+            route: connectionRouteLabelText(route, messages),
+            address,
+          }),
       { variant: "destructive" },
     );
     if (confirmed !== true) return;
@@ -103,7 +111,11 @@ export function EnvironmentRoutesList({
         onDragEnd={handleDragEnd}
       >
         <SortableContext items={order} strategy={verticalListSortingStrategy}>
-          <ol aria-label={`Routes to ${environment.label}, preferred first`}>
+          <ol
+            aria-label={gt("Routes to {environment}, preferred first", {
+              environment: environment.label,
+            })}
+          >
             {routes.map((route, index) => (
               <SortableRouteRow
                 key={connectionRouteId(route.target)}
@@ -111,6 +123,7 @@ export function EnvironmentRoutesList({
                 route={route}
                 position={index + 1}
                 inUse={connectionRouteId(route.target) === activeRouteId}
+                refused={environment.refusedRouteIds.includes(connectionRouteId(route.target))}
                 removable={routes.length > 1 && !isLearned(route)}
                 onRemove={() => void confirmRemove(route)}
               />
@@ -121,7 +134,7 @@ export function EnvironmentRoutesList({
       <div className="-ml-1.5 pt-1">
         <Button size="xs" variant="ghost-muted" onClick={onAddRoute}>
           <PlusIcon className="size-3" />
-          Add route
+          <T>Add route</T>
         </Button>
       </div>
     </div>
@@ -133,6 +146,7 @@ function SortableRouteRow({
   route,
   position,
   inUse,
+  refused,
   removable,
   onRemove,
 }: {
@@ -140,9 +154,12 @@ function SortableRouteRow({
   readonly route: ConnectionRoute;
   readonly position: number;
   readonly inUse: boolean;
+  readonly refused: boolean;
   readonly removable: boolean;
   readonly onRemove: () => void;
 }) {
+  const gt = useGT();
+  const messages = useMessages();
   const startAuth = useAtomCommand(startDevTunnelAuth, { reportFailure: true });
   const [isReconnecting, setIsReconnecting] = useState(false);
   const isTunnel = isDevTunnelRoute(route);
@@ -158,7 +175,7 @@ function SortableRouteRow({
   };
 
   const id = connectionRouteId(route.target);
-  const label = connectionRouteLabel(route);
+  const label = connectionRouteLabelText(route, messages);
   const address = connectionRouteAddress(route);
   const {
     attributes,
@@ -184,14 +201,24 @@ function SortableRouteRow({
           {label}
           {inUse ? (
             <span className="rounded-sm bg-success/12 px-1 text-2xs font-normal text-success-foreground">
-              In use
+              <T>In use</T>
+            </span>
+          ) : null}
+          {refused ? (
+            <span className="rounded-sm bg-destructive/8 px-1 text-2xs font-normal text-destructive-foreground">
+              <T>Sign-in refused</T>
             </span>
           ) : null}
         </p>
         {address !== null ? (
           <p className="truncate text-2xs text-muted-foreground">
             {address}
-            {isLearned(route) ? " · found automatically" : ""}
+            {isLearned(route) ? ` · ${gt("found automatically")}` : ""}
+          </p>
+        ) : null}
+        {refused && address !== null ? (
+          <p className="text-2xs text-muted-foreground">
+            <T>The host refused this device's sign-in. Pair this address again with Add route.</T>
           </p>
         ) : null}
       </div>
@@ -202,9 +229,9 @@ function SortableRouteRow({
           size="xs"
           disabled={isReconnecting}
           onClick={() => void handleReconnect()}
-          title="Sign in to Dev Tunnel"
+          title={gt("Sign in to Dev Tunnel")}
         >
-          {isReconnecting ? "Signing in…" : "Renew tunnel access"}
+          {isReconnecting ? gt("Signing in…") : gt("Renew tunnel access")}
         </Button>
       ) : null}
       <button
@@ -212,7 +239,7 @@ function SortableRouteRow({
         ref={setActivatorNodeRef}
         {...attributes}
         {...listeners}
-        aria-label={`Reorder ${label}, position ${position}`}
+        aria-label={gt("Reorder {route}, position {position}", { route: label, position })}
         className="flex size-6 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground/70 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:cursor-grabbing"
       >
         <GripVerticalIcon className="size-3.5" />
@@ -225,14 +252,16 @@ function SortableRouteRow({
                 type="button"
                 variant="ghost-muted"
                 size="icon-xs"
-                aria-label={`Remove ${label} route`}
+                aria-label={gt("Remove {route} route", { route: label })}
                 onClick={onRemove}
               />
             }
           >
             <XIcon className="size-3" />
           </TooltipTrigger>
-          <TooltipPopup side="top">Remove route</TooltipPopup>
+          <TooltipPopup side="top">
+            <T>Remove route</T>
+          </TooltipPopup>
         </Tooltip>
       ) : null}
     </li>

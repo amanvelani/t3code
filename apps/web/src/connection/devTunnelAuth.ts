@@ -203,7 +203,11 @@ export const consumeDevTunnelAuthCallbackEffect = Effect.fn(
     return false;
   }
   const existing = yield* credentialStore.get(pending.connectionId);
-  if (Option.isNone(existing) || existing.value.token !== pending.credential) {
+  if (
+    Option.isNone(existing) ||
+    existing.value._tag !== "BearerConnectionCredential" ||
+    existing.value.token !== pending.credential
+  ) {
     clearPendingDevTunnelAuth();
     return false;
   }

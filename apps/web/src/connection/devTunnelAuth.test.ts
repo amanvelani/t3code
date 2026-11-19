@@ -7,6 +7,7 @@ import {
   CredentialStore,
   EnvironmentRegistry,
   type ConnectionRoute,
+  type ConnectionCredential,
   type ConnectionCatalogEntry,
   type NetworkStatus,
 } from "@t3tools/client-runtime/connection";
@@ -126,7 +127,7 @@ describe("pending auth memory bounding and lifecycle", () => {
         const envId = EnvironmentId.make("env-1");
         const connectionId = "conn-1";
         const initialT3Token = "t3-secret-token";
-        let storedCred: BearerConnectionCredential = new BearerConnectionCredential({
+        let storedCred: ConnectionCredential = new BearerConnectionCredential({
           token: initialT3Token,
           tunnelToken: "old-tunnel-token",
         });
@@ -195,8 +196,11 @@ describe("pending auth memory bounding and lifecycle", () => {
         );
 
         expect(result).toBe(true);
-        expect(storedCred.token).toBe(initialT3Token);
-        expect(storedCred.tunnelToken).toBe("new-tunnel-token-xyz");
+        expect(storedCred).toMatchObject({
+          _tag: "BearerConnectionCredential",
+          token: initialT3Token,
+          tunnelToken: "new-tunnel-token-xyz",
+        });
         expect(retriedEnvId).toBe(envId);
         expect(getPendingDevTunnelAuth()).toBeNull();
       }),
@@ -207,7 +211,7 @@ describe("pending auth memory bounding and lifecycle", () => {
       const envId = EnvironmentId.make("env-1");
       const connectionId = "conn-1";
       const initialT3Token = "t3-secret-token";
-      let storedCred: BearerConnectionCredential = new BearerConnectionCredential({
+      let storedCred: ConnectionCredential = new BearerConnectionCredential({
         token: initialT3Token,
         tunnelToken: "old-tunnel-token",
       });
@@ -268,7 +272,7 @@ describe("pending auth memory bounding and lifecycle", () => {
         Effect.provide(mockRegistry),
       );
       expect(res1).toBe(false);
-      expect(storedCred.tunnelToken).toBe("old-tunnel-token");
+      expect(storedCred).toMatchObject({ tunnelToken: "old-tunnel-token" });
 
       setPendingDevTunnelAuth({
         credential: "t3-secret-token",
@@ -286,7 +290,7 @@ describe("pending auth memory bounding and lifecycle", () => {
         Effect.provide(mockRegistry),
       );
       expect(res2).toBe(false);
-      expect(storedCred.tunnelToken).toBe("old-tunnel-token");
+      expect(storedCred).toMatchObject({ tunnelToken: "old-tunnel-token" });
     }),
   );
 });

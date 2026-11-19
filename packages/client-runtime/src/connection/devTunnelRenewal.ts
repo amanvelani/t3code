@@ -4,7 +4,7 @@ import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import { BearerConnectionCredential } from "./catalog.ts";
+import { BearerConnectionCredential, type ConnectionCredential } from "./catalog.ts";
 import * as CredentialStore from "./credentialStore.ts";
 import { ConnectionTransientError, type PreparedConnection } from "./model.ts";
 import { credentialConnectionId } from "./routes.ts";
@@ -31,15 +31,18 @@ export const renewDevTunnelAccess = Effect.fn("connection.renewDevTunnelAccess")
   const credentials = yield* CredentialStore.ConnectionCredentialStore;
   const connectionId = credentialConnectionId(prepared.target.connectionId);
   const expectedBearer = prepared.httpAuthorization.token;
-  const stillCurrent = (value: Option.Option<BearerConnectionCredential>) =>
+  const stillCurrent = (
+    value: Option.Option<ConnectionCredential>,
+  ): value is Option.Some<BearerConnectionCredential> =>
     Option.isSome(value) &&
+    value.value._tag === "BearerConnectionCredential" &&
     value.value.token === expectedBearer &&
     value.value.tunnelToken === prepared.tunnelToken;
   const renewed = yield* Effect.gen(function* () {
     if (!stillCurrent(yield* credentials.get(connectionId))) return false;
     const token = yield* input.issueToken();
     const latest = yield* credentials.get(connectionId);
-    if (!stillCurrent(latest) || Option.isNone(latest)) return false;
+    if (!stillCurrent(latest)) return false;
     const now = yield* Clock.currentTimeMillis;
     if (!token.token || token.expiresAtEpochMs <= now + 60 * 60 * 1000) return false;
     yield* credentials.put(

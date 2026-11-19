@@ -1,10 +1,17 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Tracer from "effect/Tracer";
 import { vi } from "vite-plus/test";
 
-import { RelayClientTracer, withLocalTracing, withRelayClientTracing } from "./relayTracing.ts";
+import {
+  nonInterferingTracer,
+  RelayClientTracer,
+  withLocalTracing,
+  withRelayClientTracing,
+} from "./relayTracing.ts";
 
 function collectingTracer(spans: Array<string>): Tracer.Tracer {
   return Tracer.make({
@@ -44,6 +51,46 @@ describe("withRelayClientTracing", () => {
 
 // Exercise upstream exporter mechanics independently of the fork policy.
 vi.mock("./telemetryPolicy.ts", () => ({ NETWORK_TELEMETRY_ENABLED: true }));
+
+describe("nonInterferingTracer", () => {
+  it.effect("exports failures without their messages", () =>
+    Effect.gen(function* () {
+      const exits: Array<Exit.Exit<unknown, unknown>> = [];
+      const delegate = Tracer.make({
+        span: (options) => {
+          const span = new Tracer.NativeSpan(options);
+          const end = span.end.bind(span);
+          span.end = (endTime, exit) => {
+            end(endTime, exit);
+            exits.push(exit);
+          };
+          return span;
+        },
+      });
+      const failure = Object.assign(
+        new Error("studio-mac could not establish a WebSocket connection.", {
+          cause: new Error("connect ECONNREFUSED studio-mac.local"),
+        }),
+        { name: "ConnectionTransientError" },
+      );
+
+      yield* Effect.fail(failure).pipe(
+        Effect.withSpan("relay.connection.attempt"),
+        Effect.withTracer(nonInterferingTracer(delegate)),
+        Effect.ignore,
+      );
+
+      const exit = exits[0];
+      if (exit === undefined || !Exit.isFailure(exit)) throw new Error("expected a failed span");
+      const exported = Cause.prettyErrors(exit.cause);
+      expect(exported.map((error) => error.name)).toEqual(["ConnectionTransientError"]);
+      const text = exported.map((error) => `${error.message}\n${error.stack}`).join("\n");
+      expect(text).toContain("Caused by: Error");
+      expect(text).not.toContain("studio-mac");
+    }),
+  );
+});
+
 describe("withLocalTracing", () => {
   it.effect("keeps local work inside a relay span off the product tracer", () =>
     Effect.gen(function* () {

@@ -54,6 +54,17 @@ it.effect("upgrades the released fork ledger to V2 without skipping schema chang
       [88, "QueuedTurnInputIndex"],
       [89, "ProjectionProjectsCustomTitle"],
       [90, "TurnItemTypeStatusIndex"],
+      [91, "ShellThreadReadIndexes"],
+      [92, "AuthConnectDevices"],
+      [93, "AuthConnectDeniedRequests"],
+      [94, "QueuedTurnInputIndexJsonValid"],
+      [95, "ProviderTurnAttemptIndex"],
+      [96, "TurnItemMessageOrdinalIndex"],
+      [97, "TurnItemInlineWorkOutput"],
+      [98, "RepairStaleTitleRegeneration"],
+      [99, "IssueTrackerBindings"],
+      [100, "ActiveShellIndexIndexes"],
+      [101, "BackgroundRecoveryIndexes"],
     ]);
     const rows = yield* sql<{
       migration_id: number;

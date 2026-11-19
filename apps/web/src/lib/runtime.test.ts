@@ -3,11 +3,19 @@ import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Effect from "effect/Effect";
 import * as Socket from "effect/socket/Socket";
 import * as Tracer from "effect/Tracer";
+// Load the runtime's module graph once at collection, outside the per-test timeout;
+// each case re-evaluates it from that cache after vi.resetModules().
+import "./runtime";
 
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
+
+const answers = (...values: Array<boolean | null>) => {
+  let call = 0;
+  return () => values[Math.min(call++, values.length - 1)] ?? null;
+};
 
 describe("web runtime relay telemetry policy", () => {
   it.each([
@@ -18,6 +26,15 @@ describe("web runtime relay telemetry policy", () => {
     {
       surface: "desktop enabled",
       desktopBridge: { getRelayTelemetryEnabled: () => true },
+    },
+    {
+      // The desktop host reads the login shell after the renderer has started.
+      surface: "desktop enabled once the login shell is read",
+      desktopBridge: { getRelayTelemetryEnabled: answers(null, true) },
+    },
+    {
+      surface: "desktop opt-out found in the login shell",
+      desktopBridge: { getRelayTelemetryEnabled: answers(null, false, true) },
     },
     {
       surface: "ordinary browser",

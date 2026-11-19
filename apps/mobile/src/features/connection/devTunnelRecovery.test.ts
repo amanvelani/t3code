@@ -129,6 +129,7 @@ describe("findDevTunnelRoute and isDevTunnelAuthBlocked", () => {
         hop: "tunnel",
       }),
       retryAt: null,
+      refusedRouteIds: [],
     };
 
     expect(isDevTunnelAuthBlocked(blockedState, devTunnelEntry)).toBe(true);
@@ -145,6 +146,7 @@ describe("findDevTunnelRoute and isDevTunnelAuthBlocked", () => {
       generation: 1,
       lastFailure: null,
       retryAt: null,
+      refusedRouteIds: [],
     };
 
     expect(isDevTunnelAuthBlocked(connectedState, devTunnelEntry)).toBe(false);

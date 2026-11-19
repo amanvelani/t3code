@@ -5,10 +5,11 @@ import {
 } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useAtomValue } from "@effect/atom-react";
+import { T, useGT } from "gt-react";
 import { useState } from "react";
 
 import { authEnvironment } from "~/state/auth";
-import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import { namedClipboardTarget, useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { setPairingTokenOnUrl } from "@t3tools/shared/remote";
 import { useEnvironmentQuery } from "~/state/query";
 import { serverEnvironment } from "~/state/server";
@@ -26,7 +27,7 @@ import {
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { SettingsRow } from "./settingsLayout";
-import { searchableSetting } from "./settingsSearch";
+import { useSearchableSetting } from "./settingsSearch";
 
 export function DevTunnelSettings({
   environmentId,
@@ -35,6 +36,8 @@ export function DevTunnelSettings({
   environmentId: EnvironmentId;
   onPairingLinkCreated: (issued: AuthPairingCredentialResult) => void;
 }) {
+  const gt = useGT();
+  const searchableSetting = useSearchableSetting();
   const query = useEnvironmentQuery(serverEnvironment.devTunnel({ environmentId, input: {} }));
   const setEnabled = useAtomCommand(serverEnvironment.setDevTunnelEnabled, {
     reportFailure: false,
@@ -49,7 +52,9 @@ export function DevTunnelSettings({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pairingUrl, setPairingUrl] = useState<string | null>(null);
-  const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "pairing link" });
+  const { copyToClipboard, isCopied } = useCopyToClipboard({
+    target: namedClipboardTarget(gt("pairing link")),
+  });
   const state = query.data;
 
   const toggle = async (enabled: boolean) => {
@@ -58,7 +63,7 @@ export function DevTunnelSettings({
     const result = await setEnabled({ environmentId, input: { enabled } });
     if (result._tag === "Failure") {
       const failure = squashAtomCommandFailure(result);
-      setError(failure instanceof Error ? failure.message : "Could not configure Dev Tunnels.");
+      setError(failure instanceof Error ? failure.message : gt("Could not configure Dev Tunnels."));
     }
     setBusy(false);
   };
@@ -70,7 +75,7 @@ export function DevTunnelSettings({
     const connectToken = await issueToken({ environmentId, input: {} });
     if (connectToken._tag === "Failure") {
       const failure = squashAtomCommandFailure(connectToken);
-      setError(failure instanceof Error ? failure.message : "Could not issue tunnel access.");
+      setError(failure instanceof Error ? failure.message : gt("Could not issue tunnel access."));
       setBusy(false);
       return;
     }
@@ -78,14 +83,16 @@ export function DevTunnelSettings({
       const result = await createPairingCredential({
         environmentId,
         input: {
-          label: "Dev Tunnels",
+          label: gt("Dev Tunnels"),
           reusable: true,
           scopes: AuthStandardClientScopes,
         },
       });
       if (result._tag === "Failure") {
         const failure = squashAtomCommandFailure(result);
-        setError(failure instanceof Error ? failure.message : "Could not create a pairing link.");
+        setError(
+          failure instanceof Error ? failure.message : gt("Could not create a pairing link."),
+        );
       } else {
         const issued = result.value;
         onPairingLinkCreated(issued);
@@ -96,7 +103,7 @@ export function DevTunnelSettings({
         setPairingUrl(url.toString());
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not create a pairing link.");
+      setError(cause instanceof Error ? cause.message : gt("Could not create a pairing link."));
     }
     setBusy(false);
   };
@@ -108,8 +115,10 @@ export function DevTunnelSettings({
         description={
           state?.url ??
           (state?.status === "starting"
-            ? "Connecting…"
-            : "Private access from T3 Code apps and browsers. Install devtunnel and sign in on this server first.")
+            ? gt("Connecting…")
+            : gt(
+                "Private access from T3 Code apps and browsers. Install devtunnel and sign in on this server first.",
+              ))
         }
         status={
           error || state?.error || query.error ? (
@@ -125,7 +134,7 @@ export function DevTunnelSettings({
                 disabled={busy || !canEdit}
                 onClick={() => void createLink()}
               >
-                Create pairing link
+                <T>Create pairing link</T>
               </Button>
             ) : state?.status === "failed" ? (
               <Button
@@ -134,11 +143,11 @@ export function DevTunnelSettings({
                 disabled={busy || !canEdit}
                 onClick={() => void toggle(true)}
               >
-                Retry
+                <T>Retry</T>
               </Button>
             ) : null}
             <Switch
-              aria-label="Enable Dev Tunnels"
+              aria-label={gt("Enable Dev Tunnels")}
               checked={state?.enabled ?? false}
               disabled={busy || !canEdit || state === null}
               onCheckedChange={(enabled) => void toggle(enabled)}
@@ -154,17 +163,21 @@ export function DevTunnelSettings({
       >
         <DialogPopup>
           <DialogHeader>
-            <DialogTitle>Dev Tunnels pairing link</DialogTitle>
+            <DialogTitle>
+              <T>Dev Tunnels pairing link</T>
+            </DialogTitle>
             <DialogDescription>
-              Paste this link into Add environment in the T3 Code app. Native tunnel access expires
-              after about a day; use Renew tunnel access if needed. For browser access, sign in to
-              the tunnel with the owning Microsoft or GitHub account first. Revoke the pairing link
-              in Authorized clients when you no longer need it.
+              <T>
+                Paste this link into Add environment in the T3 Code app. Native tunnel access
+                expires after about a day; use Renew tunnel access if needed. For browser access,
+                sign in to the tunnel with the owning Microsoft or GitHub account first. Revoke the
+                pairing link in Authorized clients when you no longer need it.
+              </T>
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
             <Textarea
-              aria-label="Dev Tunnels pairing link"
+              aria-label={gt("Dev Tunnels pairing link")}
               readOnly
               value={pairingUrl ?? ""}
               rows={4}
@@ -173,14 +186,14 @@ export function DevTunnelSettings({
           </DialogPanel>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPairingUrl(null)}>
-              Done
+              <T>Done</T>
             </Button>
             <Button
               onClick={() => {
                 if (pairingUrl) copyToClipboard(pairingUrl, undefined);
               }}
             >
-              {isCopied ? "Copied" : "Copy link"}
+              {isCopied ? gt("Copied") : gt("Copy link")}
             </Button>
           </DialogFooter>
         </DialogPopup>

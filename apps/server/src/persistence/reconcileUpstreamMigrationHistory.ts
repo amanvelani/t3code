@@ -10,12 +10,17 @@ import ReusablePairingLinks from "./Migrations/058_ReusablePairingLinks.ts";
 export const reconcileUpstreamMigrationHistory = Effect.fn("reconcileUpstreamMigrationHistory")(
   function* (manifest: ReadonlyArray<readonly [number, string]>) {
     const sql = yield* SqlClient.SqlClient;
+    const tables = yield* sql`
+      SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
+    `;
+    if (tables.length === 0) return;
+    const marker = yield* sql`
+      SELECT migration_id FROM effect_sql_migrations
+      WHERE migration_id = 57 AND name = 'ScheduledTaskWebhooks'
+    `;
+    if (marker.length === 0) return;
     return yield* sql.withTransaction(
       Effect.gen(function* () {
-        const tables = yield* sql`
-          SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
-        `;
-        if (tables.length === 0) return;
         const history = yield* sql<{ readonly migration_id: number; readonly name: string }>`
           SELECT migration_id, name FROM effect_sql_migrations
           WHERE migration_id >= 55 ORDER BY migration_id
