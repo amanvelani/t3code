@@ -73,9 +73,10 @@ jobs:
 
       - name: Build CLI single-executable
         shell: bash
-        env:
-          VP_NODE_VERSION: "26.12.1"
-        run: node apps/server/scripts/cli.ts build-exe --verbose
+        run: |
+          set -euo pipefail
+          export VP_NODE_VERSION="$(node -p 'require("./package.json").engines.node')"
+          node apps/server/scripts/cli.ts build-exe --verbose
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
