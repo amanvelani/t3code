@@ -349,6 +349,7 @@ export function ThreadMarkdownImage(props: {
             gallery: undefined,
             environmentId: props.environmentId,
             resource: props.resource,
+            ...(props.srcFragment === undefined ? {} : { srcFragment: props.srcFragment }),
           }),
         );
       }}

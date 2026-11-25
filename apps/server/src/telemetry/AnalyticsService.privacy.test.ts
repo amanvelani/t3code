@@ -58,7 +58,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("AnalyticsService
         const serverConfig = yield* ServerConfig.ServerConfig;
         const fileSystem = yield* FileSystem.FileSystem;
 
-        yield* analytics.record("test.disabled");
+        assert.isFalse(yield* analytics.record("test.disabled"));
         yield* analytics.flush;
 
         assert.deepEqual(capturedRequests, []);

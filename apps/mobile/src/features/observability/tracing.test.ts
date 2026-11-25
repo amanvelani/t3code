@@ -7,6 +7,7 @@ import { vi } from "vite-plus/test";
 import { layerRemoteHttpClient } from "@t3tools/client-runtime/rpc";
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 
+import { setConnectionTracesEnabled } from "./diagnosticsSetting";
 import * as Tracing from "./tracing";
 
 vi.mock("expo-constants", () => ({
@@ -17,9 +18,8 @@ vi.mock("expo-constants", () => ({
   },
 }));
 
-it.effect("keeps mobile spans off the network even with a configured collector", () => {
-  const fetchFn = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
-  const layerTracing = Tracing.layerFromConfig(
+const layerTracingTo = (fetchFn: typeof fetch) =>
+  Tracing.layerFromConfig(
     {
       tracesUrl: "https://api.axiom.test/v1/traces",
       tracesDataset: "mobile-traces",
@@ -31,38 +31,11 @@ it.effect("keeps mobile spans off the network even with a configured collector",
       serviceVersion: "1.2.3",
     },
   ).pipe(Layer.provide(layerRemoteHttpClient(fetchFn)));
-  const layerTracedApplication = Layer.effectDiscard(
-    Effect.void.pipe(Effect.withSpan("mobile.test.span"), withRelayClientTracing),
-  ).pipe(Layer.provide(layerTracing));
 
-  return Effect.gen(function* () {
-    yield* Layer.build(layerTracedApplication);
-
-    expect(fetchFn).not.toHaveBeenCalled();
-  }).pipe(
-    Effect.scoped,
-    Effect.andThen(
-      Effect.sync(() => {
-        expect(fetchFn).not.toHaveBeenCalled();
-      }),
-    ),
-  );
-});
-
-it.effect("preserves application failures without exporting mobile spans", () => {
+it.effect.each([false, true])("gates relay sends and preserves typed failures (%s)", (enabled) => {
+  setConnectionTracesEnabled(enabled);
   const fetchFn = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
-  const layerTracing = Tracing.layerFromConfig(
-    {
-      tracesUrl: "https://api.axiom.test/v1/traces",
-      tracesDataset: "mobile-traces",
-      tracesToken: "public-ingest-token",
-    },
-    {
-      appVariant: "test",
-      serviceInstanceId: "test-instance",
-      serviceVersion: "1.2.3",
-    },
-  ).pipe(Layer.provide(layerRemoteHttpClient(fetchFn)));
+  const layerTracing = layerTracingTo(fetchFn);
   const failure = { durationNanos: 1n };
   const layerTracedApplication = Layer.effectDiscard(
     Effect.fail(failure).pipe(

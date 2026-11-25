@@ -1,3 +1,20 @@
+import TurnStartReadIndexes from "./Migrations/102_TurnStartReadIndexes.ts";
+import DelegatedTaskReadIndexes from "./Migrations/103_DelegatedTaskReadIndexes.ts";
+import ThreadItemCounts from "./Migrations/104_ThreadItemCounts.ts";
+import IssueTrackerAdditionalScopes from "./Migrations/105_IssueTrackerAdditionalScopes.ts";
+import ProjectionProjectsTrackedFolders from "./Migrations/106_ProjectionProjectsTrackedFolders.ts";
+import TaskFolders from "./Migrations/107_TaskFolders.ts";
+import WorktreePathKeyIndex from "./Migrations/108_WorktreePathKeyIndex.ts";
+import DeferredSlashCommandIndex from "./Migrations/109_DeferredSlashCommandIndex.ts";
+import AgentFeedback from "./Migrations/110_AgentFeedback.ts";
+import IssueTrackerAccounts from "./Migrations/111_IssueTrackerAccounts.ts";
+import Workflows from "./Migrations/112_Workflows.ts";
+import SupersededRunAttemptIndex from "./Migrations/113_SupersededRunAttemptIndex.ts";
+import LayoutCommandApprovals from "./Migrations/114_LayoutCommandApprovals.ts";
+import WorkflowSkippedRuns from "./Migrations/115_WorkflowSkippedRuns.ts";
+import WorkflowRunIndexes from "./Migrations/116_WorkflowRunIndexes.ts";
+import WorkflowRunTags from "./Migrations/117_WorkflowRunTags.ts";
+import ForkHistoryMembership from "./Migrations/118_ForkHistoryMembership.ts";
 import { assert, it } from "@effect/vitest";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
@@ -99,6 +116,23 @@ const officialMigrations = [
   [97, "IssueTrackerBindings", IssueTrackerBindings],
   [98, "ActiveShellIndexIndexes", ActiveShellIndexIndexes],
   [99, "BackgroundRecoveryIndexes", BackgroundRecoveryIndexes],
+  [100, "TurnStartReadIndexes", TurnStartReadIndexes],
+  [101, "DelegatedTaskReadIndexes", DelegatedTaskReadIndexes],
+  [102, "ThreadItemCounts", ThreadItemCounts],
+  [103, "IssueTrackerAdditionalScopes", IssueTrackerAdditionalScopes],
+  [104, "ProjectionProjectsTrackedFolders", ProjectionProjectsTrackedFolders],
+  [105, "TaskFolders", TaskFolders],
+  [106, "WorktreePathKeyIndex", WorktreePathKeyIndex],
+  [107, "DeferredSlashCommandIndex", DeferredSlashCommandIndex],
+  [108, "AgentFeedback", AgentFeedback],
+  [109, "IssueTrackerAccounts", IssueTrackerAccounts],
+  [110, "Workflows", Workflows],
+  [111, "SupersededRunAttemptIndex", SupersededRunAttemptIndex],
+  [112, "LayoutCommandApprovals", LayoutCommandApprovals],
+  [113, "WorkflowSkippedRuns", WorkflowSkippedRuns],
+  [114, "WorkflowRunIndexes", WorkflowRunIndexes],
+  [115, "WorkflowRunTags", WorkflowRunTags],
+  [116, "ForkHistoryMembership", ForkHistoryMembership],
 ] as const;
 
 const seedOfficial = Effect.fnUntraced(function* (through: number) {
@@ -157,13 +191,17 @@ const content = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   return {
     events: yield* sql`SELECT * FROM orchestration_events ORDER BY sequence`,
-    threads: yield* sql`SELECT * FROM orchestration_v2_projection_threads ORDER BY thread_id`,
+    threads: yield* sql`
+      SELECT thread_id, project_id, title, default_provider, runtime_mode, interaction_mode,
+             created_at, updated_at, payload_json
+      FROM orchestration_v2_projection_threads ORDER BY thread_id
+    `,
     sessions:
       yield* sql`SELECT session_id, subject, scopes, method, issued_at, expires_at FROM auth_sessions`,
   };
 });
 
-it.effect.each([65, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90])(
+it.effect.each([65, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 101])(
   "upgrades fork ledger at %s without losing existing content",
   (through) =>
     Effect.gen(function* () {
@@ -186,7 +224,7 @@ it.effect.each([65, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 
 
 it.effect.each([
   57, 62, 65, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87,
-  88, 90, 96, 99,
+  88, 90, 96, 99, 116,
 ])("upgrades official history through %s once and preserves content", (through) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;

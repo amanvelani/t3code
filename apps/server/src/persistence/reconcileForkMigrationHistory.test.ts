@@ -65,6 +65,7 @@ it.effect("upgrades the released fork ledger to V2 without skipping schema chang
       [99, "IssueTrackerBindings"],
       [100, "ActiveShellIndexIndexes"],
       [101, "BackgroundRecoveryIndexes"],
+      ...migrationManifest.filter(([id]) => id > 101),
     ]);
     const rows = yield* sql<{
       migration_id: number;
