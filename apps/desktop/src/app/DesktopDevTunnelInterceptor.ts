@@ -7,13 +7,18 @@ import * as Electron from "electron";
 import * as Schema from "effect/Schema";
 import { ConnectionCatalogDocument } from "@t3tools/client-runtime/platform";
 import { isDevTunnelUrl } from "@t3tools/shared/remote";
+import {
+  stripDesktopOriginHeaders,
+  type MainWindowRequestHeaderDetails,
+  type MainWindowRequestHeaderPolicy,
+} from "../window/RemoteRequestHeaders.ts";
 
 export interface DevTunnelSessionLike {
   readonly webRequest?: {
     readonly onBeforeSendHeaders: (
       listener:
         | ((
-            details: Pick<Electron.OnBeforeSendHeadersListenerDetails, "url" | "requestHeaders">,
+            details: MainWindowRequestHeaderDetails,
             callback: (beforeSendResponse: Electron.BeforeSendResponse) => void,
           ) => void)
         | null,
@@ -76,6 +81,9 @@ export class DesktopDevTunnelInterceptor extends Context.Service<
   {
     readonly start: Effect.Effect<void>;
     readonly updateCatalog: (catalogJson: string | null) => Effect.Effect<void>;
+    readonly setMainWindowPolicy: (
+      policy: MainWindowRequestHeaderPolicy | undefined,
+    ) => Effect.Effect<void>;
     readonly lookupTunnelToken: (url: string) => Option.Option<string>;
     readonly dispose: Effect.Effect<void>;
   }
@@ -86,26 +94,34 @@ export const makeWithSession = Effect.fn("DesktopDevTunnelInterceptor.makeWithSe
 ) {
   const scope = yield* Effect.serviceOption(Scope.Scope);
   let currentTokens = new Map<string, string>();
+  let mainWindowPolicy: MainWindowRequestHeaderPolicy | undefined;
 
   let targetSession: DevTunnelSessionLike | undefined;
 
   const listener = (
-    details: Pick<Electron.OnBeforeSendHeadersListenerDetails, "url" | "requestHeaders">,
+    details: MainWindowRequestHeaderDetails,
     callback: (beforeSendResponse: Electron.BeforeSendResponse) => void,
   ) => {
+    const originHeaders = mainWindowPolicy
+      ? stripDesktopOriginHeaders(mainWindowPolicy, details)
+      : undefined;
+    const requestHeaders = {
+      ...(originHeaders ?? details.requestHeaders),
+    };
     try {
       const url = new URL(details.url);
       if (url.protocol === "https:" || url.protocol === "wss:") {
         const token = currentTokens.get(url.origin);
-        if (token) {
-          const requestHeaders = { ...details.requestHeaders };
+        if (
+          token &&
+          !Object.keys(requestHeaders).some(
+            (name) => name.toLowerCase() === "x-tunnel-authorization",
+          )
+        ) {
           requestHeaders["X-Tunnel-Authorization"] = `tunnel ${token}`;
-          callback({ requestHeaders });
-          return;
         }
       }
     } catch {}
-    const requestHeaders = { ...details.requestHeaders };
     if (!isDevTunnelUrl(details.url)) {
       for (const name of Object.keys(requestHeaders)) {
         if (name.toLowerCase() === "x-tunnel-authorization") delete requestHeaders[name];
@@ -119,6 +135,7 @@ export const makeWithSession = Effect.fn("DesktopDevTunnelInterceptor.makeWithSe
     if (installed) return;
     targetSession = session ?? Electron.session.defaultSession;
     if (targetSession.webRequest?.onBeforeSendHeaders) {
+      // Electron keeps only the last listener, so origin and tunnel policies share this hook.
       targetSession.webRequest.onBeforeSendHeaders(listener);
       installed = true;
     }
@@ -155,9 +172,17 @@ export const makeWithSession = Effect.fn("DesktopDevTunnelInterceptor.makeWithSe
     }
   };
 
+  const setMainWindowPolicy = Effect.fn("DesktopDevTunnelInterceptor.setMainWindowPolicy")(
+    (policy: MainWindowRequestHeaderPolicy | undefined) =>
+      Effect.sync(() => {
+        mainWindowPolicy = policy;
+      }),
+  );
+
   return DesktopDevTunnelInterceptor.of({
     start,
     updateCatalog,
+    setMainWindowPolicy,
     lookupTunnelToken,
     dispose,
   });

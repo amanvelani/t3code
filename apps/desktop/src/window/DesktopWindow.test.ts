@@ -35,6 +35,7 @@ vi.mock("electron", async (importOriginal) => ({
 }));
 
 import * as DesktopAssets from "../app/DesktopAssets.ts";
+import * as DesktopDevTunnelInterceptor from "../app/DesktopDevTunnelInterceptor.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopPrimaryPaste from "../app/DesktopPrimaryPaste.ts";
@@ -336,6 +337,10 @@ function layerTest(input: {
     Layer.provide(
       Layer.mergeAll(
         layerDesktopAssets,
+        Layer.mock(DesktopDevTunnelInterceptor.DesktopDevTunnelInterceptor)({
+          setMainWindowPolicy: () => Effect.void,
+          lookupTunnelToken: () => Option.none(),
+        }),
         Layer.succeed(DesktopRendererHistory.DesktopRendererHistory, {
           register: () => Effect.void,
           recordMetrics: () => Effect.void,
@@ -461,6 +466,10 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
       Layer.provide(
         Layer.mergeAll(
           layerDesktopAssets,
+          Layer.mock(DesktopDevTunnelInterceptor.DesktopDevTunnelInterceptor)({
+            setMainWindowPolicy: () => Effect.void,
+            lookupTunnelToken: () => Option.none(),
+          }),
           Layer.succeed(DesktopRendererHistory.DesktopRendererHistory, {
             register: () => Effect.void,
             recordMetrics: () => Effect.void,

@@ -1,9 +1,6 @@
 import * as NetAddress from "effect/net/NetAddress";
 import * as Result from "effect/Result";
-import type * as Electron from "electron";
-
-// `*://` matches only http and https, so WebSocket schemes are listed separately.
-const REMOTE_REQUEST_URL_PATTERNS = ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"];
+import { isDevTunnelUrl } from "@t3tools/shared/remote";
 
 export interface MainWindowRequestHeaderPolicy {
   readonly desktopOrigin: string;
@@ -70,6 +67,8 @@ function hasExactDesktopOriginHeader(
 }
 
 function shouldPreserveOriginHeader(policy: MainWindowRequestHeaderPolicy, url: URL): boolean {
+  // Dev Tunnels only allow unauthenticated CORS preflights when Origin is present.
+  if (isDevTunnelUrl(url)) return true;
   const hostname = normalizeHostname(url.hostname);
   if (
     policy.clerkFrontendApiHostname !== undefined &&
@@ -99,7 +98,11 @@ export function stripDesktopOriginHeaders(
   }
 
   const parsedUrl = URL.parse(details.url);
-  if (parsedUrl === null || shouldPreserveOriginHeader(policy, parsedUrl)) {
+  if (
+    parsedUrl === null ||
+    !["http:", "https:", "ws:", "wss:"].includes(parsedUrl.protocol) ||
+    shouldPreserveOriginHeader(policy, parsedUrl)
+  ) {
     return undefined;
   }
 
@@ -110,20 +113,4 @@ export function stripDesktopOriginHeaders(
     nextHeaders[name] = value;
   }
   return nextHeaders;
-}
-
-export function installMainWindowRemoteRequestHeaderPolicy(
-  session: Pick<Electron.Session, "webRequest">,
-  policy: MainWindowRequestHeaderPolicy,
-): () => void {
-  session.webRequest.onBeforeSendHeaders(
-    { urls: REMOTE_REQUEST_URL_PATTERNS },
-    (details, callback) => {
-      const requestHeaders = stripDesktopOriginHeaders(policy, details);
-      callback(requestHeaders === undefined ? {} : { requestHeaders });
-    },
-  );
-  return () => {
-    session.webRequest.onBeforeSendHeaders(null);
-  };
 }

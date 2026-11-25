@@ -162,6 +162,10 @@ jobs:
       - name: Install desktop dependencies
         run: vp install --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts...
 
+      - name: Verify desktop connection headers
+        working-directory: apps/desktop
+        run: vp test run src/app/DesktopDevTunnelInterceptor.test.ts src/window/RemoteRequestHeaders.test.ts src/window/DesktopWindow.test.ts --project unit
+
       - name: Cache resource monitor
         id: resource_monitor_cache
         uses: actions/cache@v6

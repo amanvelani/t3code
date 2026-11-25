@@ -26,6 +26,8 @@ describe("RemoteRequestHeaders", () => {
     "http://127.0.0.1:8080/api/auth/bootstrap",
     "ws://127.0.0.1:8080/ws?ticket=abc",
     "wss://remote.example.com/ws?ticket=abc",
+    "https://devtunnels.ms.example.com/.well-known/t3/environment",
+    "http://private.usw2.devtunnels.ms/.well-known/t3/environment",
   ])("strips Origin and Sec-Fetch-* on outbound main-window %s requests", (url) => {
     const headers = stripDesktopOriginHeaders(packagedPolicy, {
       url,
@@ -65,8 +67,14 @@ describe("RemoteRequestHeaders", () => {
     });
   });
 
-  it("preserves headers for Clerk frontend API requests", () => {
-    for (const url of ["https://clerk.t3.codes/v1/client", "https://CLERK.T3.CODES./v1/client"]) {
+  it("preserves headers for app assets, Clerk, and secure Dev Tunnel requests", () => {
+    for (const url of [
+      "t3code://app/assets/runtime.js",
+      "https://clerk.t3.codes/v1/client",
+      "https://CLERK.T3.CODES./v1/client",
+      "https://private.usw2.devtunnels.ms/.well-known/t3/environment",
+      "wss://private.usw2.devtunnels.ms/ws",
+    ]) {
       const headers = stripDesktopOriginHeaders(packagedPolicy, {
         url,
         webContentsId: 42,

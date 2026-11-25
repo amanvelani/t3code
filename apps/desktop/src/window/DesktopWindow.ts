@@ -19,6 +19,7 @@ import {
 } from "@t3tools/contracts";
 
 import * as DesktopAssets from "../app/DesktopAssets.ts";
+import * as DesktopDevTunnelInterceptor from "../app/DesktopDevTunnelInterceptor.ts";
 import * as DesktopClerk from "../app/DesktopClerk.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopPrimaryPaste from "../app/DesktopPrimaryPaste.ts";
@@ -50,7 +51,6 @@ import { m } from "../i18n/messages.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
-import { installMainWindowRemoteRequestHeaderPolicy } from "./RemoteRequestHeaders.ts";
 
 const TITLEBAR_HEIGHT = 40;
 
@@ -397,6 +397,7 @@ export const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const desktopState = yield* DesktopState.DesktopState;
   const assets = yield* DesktopAssets.DesktopAssets;
+  const devTunnelInterceptor = yield* DesktopDevTunnelInterceptor.DesktopDevTunnelInterceptor;
   const electronMenu = yield* ElectronMenu.ElectronMenu;
   const electronShell = yield* ElectronShell.ElectronShell;
   const electronTheme = yield* ElectronTheme.ElectronTheme;
@@ -1058,18 +1059,15 @@ export const make = Effect.gen(function* () {
     // Desktop IPC only answers the main window, so register it before its renderer can call in.
     yield* electronWindow.setMain(window);
     remoteRequestHeaderOwner = window;
-    const detachRemoteRequestHeaders = installMainWindowRemoteRequestHeaderPolicy(
-      window.webContents.session,
-      {
-        desktopOrigin: getDesktopOrigin(environment.isDevelopment),
-        mainWebContentsId: window.webContents.id,
-        clerkFrontendApiHostname: DesktopClerk.desktopClerkFrontendApiHostname,
-        devServerOrigin: Option.getOrUndefined(
-          Option.map(environment.devServerUrl, (url) => url.origin),
-        ),
-        isDevelopment: environment.isDevelopment,
-      },
-    );
+    yield* devTunnelInterceptor.setMainWindowPolicy({
+      desktopOrigin: getDesktopOrigin(environment.isDevelopment),
+      mainWebContentsId: window.webContents.id,
+      clerkFrontendApiHostname: DesktopClerk.desktopClerkFrontendApiHostname,
+      devServerOrigin: Option.getOrUndefined(
+        Option.map(environment.devServerUrl, (url) => url.origin),
+      ),
+      isDevelopment: environment.isDevelopment,
+    });
     loadApplication();
     if (environment.isDevelopment) {
       window.webContents.openDevTools({ mode: "detach" });
@@ -1081,7 +1079,7 @@ export const make = Effect.gen(function* () {
       clearBoundsPersist();
       if (remoteRequestHeaderOwner === window) {
         remoteRequestHeaderOwner = null;
-        detachRemoteRequestHeaders();
+        void runPromise(devTunnelInterceptor.setMainWindowPolicy(undefined));
       }
       void runPromise(electronWindow.clearMain(Option.some(window)));
     });

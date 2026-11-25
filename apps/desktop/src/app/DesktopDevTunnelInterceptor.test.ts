@@ -186,14 +186,39 @@ describe("DesktopDevTunnelInterceptor", () => {
         assert.strictEqual(mockSession.webRequest.onBeforeSendHeaders.mock.calls.length, 1);
         assert.ok(registeredListener);
 
+        yield* interceptor.setMainWindowPolicy({
+          desktopOrigin: "t3code://app",
+          mainWebContentsId: 42,
+          isDevelopment: false,
+        });
+
+        assert.deepStrictEqual(
+          invokeListener({
+            url: "https://my-tunnel.asse.devtunnels.ms/.well-known/t3/environment",
+            webContentsId: 42,
+            frame: { parent: null },
+            requestHeaders: {
+              Origin: "t3code://app",
+              "x-tunnel-authorization": "tunnel fresh-pairing-token",
+            },
+          }),
+          {
+            Origin: "t3code://app",
+            "x-tunnel-authorization": "tunnel fresh-pairing-token",
+          },
+        );
+
         // 1. Matching HTTPS request (e.g. image, video, fetch)
         assert.deepStrictEqual(
           invokeListener({
             url: "https://my-tunnel.asse.devtunnels.ms/media/screenshot.png",
-            requestHeaders: { "User-Agent": "TestAgent" },
+            webContentsId: 42,
+            frame: { parent: null },
+            requestHeaders: { "User-Agent": "TestAgent", Origin: "t3code://app" },
           }),
           {
             "User-Agent": "TestAgent",
+            Origin: "t3code://app",
             "X-Tunnel-Authorization": "tunnel secret-tunnel-token-123",
           },
         );
@@ -202,10 +227,13 @@ describe("DesktopDevTunnelInterceptor", () => {
         assert.deepStrictEqual(
           invokeListener({
             url: "wss://my-tunnel.asse.devtunnels.ms/ws",
-            requestHeaders: {},
+            webContentsId: 42,
+            frame: null,
+            requestHeaders: { Origin: "t3code://app" },
           }),
           {
             "X-Tunnel-Authorization": "tunnel secret-tunnel-token-123",
+            Origin: "t3code://app",
           },
         );
 
@@ -231,10 +259,28 @@ describe("DesktopDevTunnelInterceptor", () => {
         assert.deepStrictEqual(
           invokeListener({
             url: "https://github.com/api",
-            requestHeaders: { Accept: "application/json" },
+            webContentsId: 42,
+            frame: { parent: null },
+            requestHeaders: {
+              Accept: "application/json",
+              Origin: "t3code://app",
+              "Sec-Fetch-Mode": "cors",
+              "X-Tunnel-Authorization": "tunnel must-not-leak",
+            },
           }),
           { Accept: "application/json" },
         );
+
+        yield* interceptor.setMainWindowPolicy(undefined);
+        assert.deepStrictEqual(
+          invokeListener({
+            url: "https://github.com/api",
+            webContentsId: 42,
+            requestHeaders: { Origin: "t3code://app" },
+          }),
+          { Origin: "t3code://app" },
+        );
+        assert.strictEqual(mockSession.webRequest.onBeforeSendHeaders.mock.calls.length, 1);
 
         // 6. When catalog is updated with credential removed, origin is no longer intercepted
         yield* interceptor.updateCatalog(
